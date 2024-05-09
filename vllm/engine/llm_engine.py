@@ -7,7 +7,7 @@ import vllm
 from vllm.config import (CacheConfig, DecodingConfig, DeviceConfig, LoadConfig,
                          LoRAConfig, ModelConfig, ParallelConfig,
                          SchedulerConfig, SpeculativeConfig,
-                         VisionLanguageConfig)
+                         VisionLanguageConfig, AudioLanguageConfig)
 from vllm.core.scheduler import (ScheduledSequenceGroup, Scheduler,
                                  SchedulerOutputs)
 from vllm.engine.arg_utils import EngineArgs
@@ -91,6 +91,7 @@ class LLMEngine:
         load_config: LoadConfig,
         lora_config: Optional[LoRAConfig],
         vision_language_config: Optional[VisionLanguageConfig],
+        audio_language_config: Optional[AudioLanguageConfig],
         speculative_config: Optional[SpeculativeConfig],
         decoding_config: Optional[DecodingConfig],
         executor_class: Type[ExecutorBase],
@@ -137,6 +138,7 @@ class LLMEngine:
         self.cache_config = cache_config
         self.lora_config = lora_config
         self.vision_language_config = vision_language_config
+        self.audio_language_config = audio_language_config
         self.parallel_config = parallel_config
         self.scheduler_config = scheduler_config
         self.device_config = device_config
@@ -165,6 +167,7 @@ class LLMEngine:
             device_config=device_config,
             lora_config=lora_config,
             vision_language_config=vision_language_config,
+            audio_language_config=audio_language_config,
             speculative_config=speculative_config,
             load_config=load_config,
         )

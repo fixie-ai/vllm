@@ -11,7 +11,7 @@ from torch import nn
 
 from vllm.config import (DeviceConfig, LoadConfig, LoadFormat, LoRAConfig,
                          ModelConfig, ParallelConfig, SchedulerConfig,
-                         VisionLanguageConfig)
+                         VisionLanguageConfig, AudioLanguageConfig)
 from vllm.envs import VLLM_USE_MODELSCOPE
 from vllm.logger import init_logger
 from vllm.model_executor.layers.quantization.base_config import (
@@ -26,9 +26,13 @@ from vllm.model_executor.model_loader.weight_utils import (
     get_quant_config, initialize_dummy_weights, np_cache_weights_iterator,
     pt_weights_iterator, safetensors_weights_iterator)
 from vllm.model_executor.models.llava import LlavaForConditionalGeneration
+from vllm.model_executor.models.gazelle import GazelleForConditionalGeneration
 
 _VISION_MODEL_CLASSES = [
     LlavaForConditionalGeneration,
+]
+_AUDIO_MODEL_CLASSES = [
+    GazelleForConditionalGeneration,
 ]
 
 logger = init_logger(__name__)
@@ -60,7 +64,7 @@ def _get_quantization_config(
 
 def _get_model_initialization_kwargs(
         model_class: Type[nn.Module], lora_config: Optional[LoRAConfig],
-        vision_language_config: Optional[VisionLanguageConfig]
+        vision_language_config: Optional[VisionLanguageConfig], audio_language_config: Optional[AudioLanguageConfig]
 ) -> Dict[str, Any]:
     """Get extra kwargs for model initialization."""
     extra_kwargs = {}
@@ -74,13 +78,16 @@ def _get_model_initialization_kwargs(
             "please open an issue on github.")
     elif model_class in _VISION_MODEL_CLASSES:
         extra_kwargs["vision_language_config"] = vision_language_config
+    elif model_class in _AUDIO_MODEL_CLASSES:
+        extra_kwargs["audio_language_config"] = audio_language_config
     return extra_kwargs
 
 
 def _initialize_model(
         model_config: ModelConfig, load_config: LoadConfig,
         lora_config: Optional[LoRAConfig],
-        vision_language_config: Optional[VisionLanguageConfig]) -> nn.Module:
+        vision_language_config: Optional[VisionLanguageConfig],
+        audio_language_config:  Optional[AudioLanguageConfig]) -> nn.Module:
     """Initialize a model with the given configurations."""
     model_class = get_model_architecture(model_config)[0]
     quant_config = _get_quantization_config(model_config, load_config)
@@ -88,7 +95,7 @@ def _initialize_model(
     return model_class(config=model_config.hf_config,
                        quant_config=quant_config,
                        **_get_model_initialization_kwargs(
-                           model_class, lora_config, vision_language_config))
+                           model_class, lora_config, vision_language_config, audio_language_config))
 
 
 class BaseModelLoader(ABC):
@@ -213,14 +220,15 @@ class DefaultModelLoader(BaseModelLoader):
 
     def load_model(self, *, model_config: ModelConfig,
                    device_config: DeviceConfig,
-                   lora_config: Optional[LoRAConfig],
+                   lora_config: Optional[LoRAConfig],                   
                    vision_language_config: Optional[VisionLanguageConfig],
+                   audio_language_config: Optional[AudioLanguageConfig],
                    parallel_config: ParallelConfig,
                    scheduler_config: SchedulerConfig) -> nn.Module:
         with set_default_torch_dtype(model_config.dtype):
             with torch.device(device_config.device):
                 model = _initialize_model(model_config, self.load_config,
-                                          lora_config, vision_language_config)
+                                          lora_config, vision_language_config, audio_language_config)
             model.load_weights(
                 self._get_weights_iterator(model_config.model,
                                            model_config.revision,

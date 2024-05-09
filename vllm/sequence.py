@@ -386,6 +386,7 @@ class MultiModalData:
 
     class Type(enum.Enum):
         IMAGE = enum.auto()
+        AUDIO = enum.auto()
 
     def __init__(self, type: Type, data: "torch.Tensor"):
         self.type = type

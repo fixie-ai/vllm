@@ -8,7 +8,7 @@ import torch.distributed
 
 from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
                          ModelConfig, ParallelConfig, SchedulerConfig,
-                         VisionLanguageConfig)
+                         VisionLanguageConfig, AudioLanguageConfig)
 from vllm.distributed import (broadcast_tensor_dict,
                               ensure_model_parallel_initialized,
                               get_tensor_model_parallel_cpu_group,
@@ -45,6 +45,7 @@ class Worker(WorkerBase):
         distributed_init_method: str,
         lora_config: Optional[LoRAConfig] = None,
         vision_language_config: Optional[VisionLanguageConfig] = None,
+        audio_language_config: Optional[AudioLanguageConfig] = None,
         is_driver_worker: bool = False,
     ) -> None:
         self.model_config = model_config
@@ -66,7 +67,8 @@ class Worker(WorkerBase):
             from vllm.utils import init_cached_hf_modules
             init_cached_hf_modules()
         self.vision_language_config = vision_language_config
-        if self.vision_language_config:
+        self.audio_language_config = audio_language_config
+        if self.vision_language_config or self.audio_language_config:
             assert not self.lora_config, (
                 "To be tested: vision language model with LoRA settings.")
 
@@ -80,6 +82,7 @@ class Worker(WorkerBase):
             kv_cache_dtype=self.cache_config.cache_dtype,
             is_driver_worker=is_driver_worker,
             vision_language_config=vision_language_config,
+            audio_language_config=audio_language_config,
         )
         # Uninitialized cache engine. Will be initialized by
         # initialize_cache.

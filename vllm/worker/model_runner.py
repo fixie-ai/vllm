@@ -11,7 +11,7 @@ from vllm.attention import (AttentionMetadata, AttentionMetadataPerStage,
                             get_attn_backend)
 from vllm.attention.backends.flashinfer import FlashInferBackend
 from vllm.config import (DeviceConfig, LoadConfig, LoRAConfig, ModelConfig,
-                         ParallelConfig, SchedulerConfig, VisionLanguageConfig)
+                         ParallelConfig, SchedulerConfig, VisionLanguageConfig, AudioLanguageConfig)
 from vllm.distributed import broadcast_tensor_dict, with_pynccl_for_all_reduce
 from vllm.distributed.device_communicators import (custom_all_reduce,
                                                    pynccl_utils)
@@ -112,6 +112,7 @@ class ModelRunner:
         kv_cache_dtype: Optional[str] = "auto",
         is_driver_worker: bool = False,
         vision_language_config: Optional[VisionLanguageConfig] = None,
+        audio_language_config: Optional[AudioLanguageConfig] = None,
     ):
         self.model_config = model_config
         self.parallel_config = parallel_config
@@ -141,6 +142,7 @@ class ModelRunner:
         self.pin_memory = is_pin_memory_available()
         self.kv_cache_dtype = kv_cache_dtype
         self.vision_language_config = vision_language_config
+        self.audio_language_config = audio_language_config
 
         self.attn_backend = get_attn_backend(
             self.model_config.dtype if model_config is not None else None)
@@ -167,6 +169,7 @@ class ModelRunner:
                 load_config=self.load_config,
                 lora_config=self.lora_config,
                 vision_language_config=self.vision_language_config,
+                audio_language_config=self.audio_language_config,
                 parallel_config=self.parallel_config,
                 scheduler_config=self.scheduler_config,
             )
@@ -351,7 +354,7 @@ class ModelRunner:
                                            device=self.device)
 
         if multi_modal_input_list:
-            assert self.vision_language_config, (
+            assert self.vision_language_config or self.audio_language_config, (
                 "Multi-modal inputs are only supported by "
                 "vision language models.")
             multi_modal_input = torch.cat(multi_modal_input_list,
@@ -805,6 +808,8 @@ class ModelRunner:
         }
         if self.vision_language_config:
             execute_model_kwargs.update({"image_input": multi_modal_input})
+        elif self.audio_language_config:
+            execute_model_kwargs.update({"audio_input": multi_modal_input})
         hidden_states = model_executable(**execute_model_kwargs)
 
         # Compute the logits.
@@ -865,6 +870,11 @@ class ModelRunner:
                 max_num_seqs,
                 int(max_num_batched_tokens /
                     self.vision_language_config.image_feature_size))
+        elif self.audio_language_config:
+            max_num_seqs = max_num_seqs #min(
+                #max_num_seqs,
+                #int(max_num_batched_tokens /
+                #    self.audio_language_config.audio_feature_size))
         for group_id in range(max_num_seqs):
             seq_len = (max_num_batched_tokens // max_num_seqs +
                        (group_id < max_num_batched_tokens % max_num_seqs))

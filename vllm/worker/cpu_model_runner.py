@@ -5,7 +5,7 @@ from torch import nn
 
 from vllm.attention import AttentionMetadata, get_attn_backend
 from vllm.config import (DeviceConfig, LoadConfig, LoRAConfig, ModelConfig,
-                         ParallelConfig, SchedulerConfig, VisionLanguageConfig)
+                         ParallelConfig, SchedulerConfig, AudioLanguageConfig, VisionLanguageConfig)
 from vllm.distributed import broadcast_tensor_dict
 from vllm.logger import init_logger
 from vllm.model_executor import SamplingMetadata
@@ -29,6 +29,7 @@ class CPUModelRunner:
         load_config: LoadConfig,
         lora_config: Optional[LoRAConfig],
         vision_language_config: Optional[VisionLanguageConfig],
+        audio_language_config: Optional[AudioLanguageConfig],
         kv_cache_dtype: Optional[str] = "auto",
         is_driver_worker: bool = False,
         *args,
@@ -41,6 +42,7 @@ class CPUModelRunner:
         assert self.scheduler_config.chunked_prefill_enabled is False
         self.lora_config = lora_config
         self.vision_language_config = vision_language_config
+        self.audio_language_config = audio_language_config
         self.load_config = load_config
         self.is_driver_worker = is_driver_worker
 
@@ -328,6 +330,8 @@ class CPUModelRunner:
         }
         if self.vision_language_config:
             execute_model_kwargs.update({"image_input": multi_modal_input})
+        elif self.audio_language_config:
+            execute_model_kwargs.update({"audio_input": multi_modal_input})
 
         hidden_states = model_executable(**execute_model_kwargs)
 
