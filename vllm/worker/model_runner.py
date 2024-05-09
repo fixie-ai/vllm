@@ -9,9 +9,17 @@ import torch
 import torch.nn as nn
 
 from vllm.attention import AttentionMetadata, get_attn_backend
-from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
-                         ModelConfig, ParallelConfig, SchedulerConfig,
-                         VisionLanguageConfig)
+from vllm.config import (
+    CacheConfig,
+    DeviceConfig,
+    LoadConfig,
+    LoRAConfig,
+    ModelConfig,
+    ParallelConfig,
+    SchedulerConfig,
+    AudioLanguageConfig,
+    VisionLanguageConfig,
+)
 from vllm.distributed import broadcast_tensor_dict
 from vllm.distributed.parallel_state import graph_capture
 from vllm.logger import init_logger
@@ -24,8 +32,13 @@ from vllm.model_executor.model_loader.tensorizer import TensorizerConfig
 from vllm.multimodal import MULTIMODAL_REGISTRY
 from vllm.sampling_params import SamplingParams
 from vllm.sequence import SamplerOutput, SequenceData, SequenceGroupMetadata
-from vllm.utils import (CudaMemoryProfiler, get_kv_cache_torch_dtype, is_hip,
-                        is_pin_memory_available, make_tensor_with_pad)
+from vllm.utils import (
+    CudaMemoryProfiler,
+    get_kv_cache_torch_dtype,
+    is_hip,
+    is_pin_memory_available,
+    make_tensor_with_pad,
+)
 
 logger = init_logger(__name__)
 
@@ -73,7 +86,6 @@ class ModelInput(NamedTuple):
 
 
 class ModelRunner:
-
     def __init__(
         self,
         model_config: ModelConfig,
@@ -86,6 +98,7 @@ class ModelRunner:
         kv_cache_dtype: Optional[str] = "auto",
         is_driver_worker: bool = False,
         vision_language_config: Optional[VisionLanguageConfig] = None,
+        audio_language_config: Optional[AudioLanguageConfig] = None,
     ):
         self.model_config = model_config
         self.parallel_config = parallel_config
@@ -96,6 +109,7 @@ class ModelRunner:
         self.load_config = load_config
         self.is_driver_worker = is_driver_worker
         self.vision_language_config = vision_language_config
+        self.audio_language_config = audio_language_config
 
         self.device = self.device_config.device
         self.pin_memory = is_pin_memory_available()
@@ -105,8 +119,9 @@ class ModelRunner:
         self.block_size = cache_config.block_size
         self.max_seq_len_to_capture = self.model_config.max_seq_len_to_capture
         self.graph_runners: Dict[int, CUDAGraphRunner] = {}
-        self.graph_memory_pool: Optional[Tuple[
-            int, int]] = None  # Set during graph capture.
+        self.graph_memory_pool: Optional[Tuple[int, int]] = (
+            None  # Set during graph capture.
+        )
         # When using CUDA graph, the input block tables must be padded to
         # max_seq_len_to_capture. However, creating the block table in
         # Python can be expensive. To optimize this, we cache the block table
@@ -115,7 +130,8 @@ class ModelRunner:
         # (max batch size to capture, max context len to capture / block size).
         self.graph_block_tables = np.zeros(
             (max(_BATCH_SIZES_TO_CAPTURE), self.get_max_block_per_batch()),
-            dtype=np.int32)
+            dtype=np.int32,
+        )
         self.attn_backend = get_attn_backend(
             self.model_config.get_num_attention_heads(self.parallel_config),
             self.model_config.get_head_size(),
@@ -127,12 +143,17 @@ class ModelRunner:
         )
 
         # Create processor for multi-modal data
-        if self.vision_language_config is not None:
-            self.multi_modal_input_processor = MULTIMODAL_REGISTRY \
-                .create_input_processor(
+        if (
+            self.vision_language_config is not None
+            or self.audio_language_config is not None
+        ):
+            self.multi_modal_input_processor = (
+                MULTIMODAL_REGISTRY.create_input_processor(
                     self.model_config,
                     self.vision_language_config,
+                    self.audio_language_config,
                 )
+            )
         else:
             self.multi_modal_input_processor = None
 
@@ -151,24 +172,29 @@ class ModelRunner:
                 load_config=self.load_config,
                 lora_config=self.lora_config,
                 vision_language_config=self.vision_language_config,
+                audio_language_config=self.audio_language_config,
                 parallel_config=self.parallel_config,
                 scheduler_config=self.scheduler_config,
                 cache_config=self.cache_config,
             )
 
         self.model_memory_usage = m.consumed_memory
-        logger.info("Loading model weights took %.4f GB",
-                    self.model_memory_usage / float(2**30))
+        logger.info(
+            "Loading model weights took %.4f GB",
+            self.model_memory_usage / float(2**30),
+        )
 
         if self.lora_config:
-            assert hasattr(self.model, "supported_lora_modules"
-                           ) and self.model.supported_lora_modules, (
-                               "Model does not support LoRA")
+            assert (
+                hasattr(self.model, "supported_lora_modules")
+                and self.model.supported_lora_modules
+            ), "Model does not support LoRA"
             assert hasattr(
-                self.model,
-                "embedding_modules"), "Model does not have embedding_modules"
-            assert hasattr(self.model, "embedding_padding_modules"
-                           ), "Model does not have embedding_padding_modules"
+                self.model, "embedding_modules"
+            ), "Model does not have embedding_modules"
+            assert hasattr(
+                self.model, "embedding_padding_modules"
+            ), "Model does not have embedding_padding_modules"
             self.lora_manager = LRUCacheWorkerLoRAManager(
                 self.scheduler_config.max_num_seqs,
                 self.scheduler_config.max_num_batched_tokens,
@@ -177,8 +203,7 @@ class ModelRunner:
                 self.device,
                 self.model.embedding_modules,
                 self.model.embedding_padding_modules,
-                max_position_embeddings=self.model.config.
-                max_position_embeddings,
+                max_position_embeddings=self.model.config.max_position_embeddings,
             )
             self.model = self.lora_manager.create_lora_manager(self.model)
 
@@ -193,21 +218,27 @@ class ModelRunner:
                         "deprecated and will be removed. Please include "
                         "kv cache scaling factors in the model checkpoint.",
                         FutureWarning,
-                        stacklevel=2)
+                        stacklevel=2,
+                    )
                     self.model.load_kv_cache_scales(
-                        self.model_config.quantization_param_path)
-                    logger.info("Loaded KV cache scaling factors from %s",
-                                self.model_config.quantization_param_path)
+                        self.model_config.quantization_param_path
+                    )
+                    logger.info(
+                        "Loaded KV cache scaling factors from %s",
+                        self.model_config.quantization_param_path,
+                    )
                 else:
                     raise RuntimeError(
                         "Using FP8 KV cache and scaling factors provided but "
                         "model %s does not support loading scaling factors.",
-                        self.model.__class__)
+                        self.model.__class__,
+                    )
             else:
                 logger.warning(
                     "Using FP8 KV cache but no scaling factors "
                     "provided. Defaulting to scaling factors of 1.0. "
-                    "This may lead to less accurate results!")
+                    "This may lead to less accurate results!"
+                )
 
     def save_sharded_state(
         self,
@@ -216,6 +247,7 @@ class ModelRunner:
         max_size: Optional[int] = None,
     ) -> None:
         from vllm.model_executor.model_loader.loader import ShardedStateLoader
+
         ShardedStateLoader.save_model(
             self.model,
             path,
@@ -228,6 +260,7 @@ class ModelRunner:
         tensorizer_config: TensorizerConfig,
     ) -> None:
         from vllm.model_executor.model_loader.loader import TensorizerLoader
+
         TensorizerLoader.save_model(
             self.model,
             tensorizer_config=tensorizer_config,
@@ -266,8 +299,9 @@ class ModelRunner:
         context_lens: List[int] = []
         query_lens: List[int] = []
         block_tables: List[List[int]] = []
-        multi_modal_kwargs_list: Dict[str,
-                                      List[torch.Tensor]] = defaultdict(list)
+        multi_modal_kwargs_list: Dict[str, List[torch.Tensor]] = defaultdict(
+            list
+        )
         decode_only = True
         num_prefills = 0
         num_prefill_tokens = 0
@@ -295,10 +329,12 @@ class ModelRunner:
             return ModelInput.empty(self.device)
 
         if self.sliding_window is not None:
-            sliding_window_blocks = (self.sliding_window + self.block_size -
-                                     1) // self.block_size
-            block_aligned_sliding_window = \
+            sliding_window_blocks = (
+                self.sliding_window + self.block_size - 1
+            ) // self.block_size
+            block_aligned_sliding_window = (
                 sliding_window_blocks * self.block_size
+            )
 
         for seq_group_metadata in seq_group_metadata_list:
             seq_ids = list(seq_group_metadata.seq_data.keys())
@@ -306,13 +342,17 @@ class ModelRunner:
 
             for seq_id in seq_ids:
                 computed_block_nums = seq_group_metadata.computed_block_nums
-                if (self.scheduler_config is not None
-                        and self.scheduler_config.chunked_prefill_enabled
-                        and not (computed_block_nums is None
-                                 or computed_block_nums == [])):
+                if (
+                    self.scheduler_config is not None
+                    and self.scheduler_config.chunked_prefill_enabled
+                    and not (
+                        computed_block_nums is None or computed_block_nums == []
+                    )
+                ):
                     raise RuntimeError(
                         "chunked prefill cannot be used with prefix caching "
-                        "now.")
+                        "now."
+                    )
 
                 seq_data = seq_group_metadata.seq_data[seq_id]
                 if is_prompt:
@@ -325,7 +365,8 @@ class ModelRunner:
 
                 seq_len = min(
                     seq_data.get_len(),
-                    context_len + seq_group_metadata.token_chunk_size)
+                    context_len + seq_group_metadata.token_chunk_size,
+                )
                 if is_prompt:
                     tokens = seq_data.get_token_ids()[context_len:seq_len]
                 else:
@@ -335,10 +376,12 @@ class ModelRunner:
 
                 # Prefix cache was hit.
                 # Prefix is not supported with sliding_window
-                prefix_cache_hit = (computed_block_nums is not None
-                                    and len(computed_block_nums) > 0
-                                    and self.sliding_window is None
-                                    and is_prompt)
+                prefix_cache_hit = (
+                    computed_block_nums is not None
+                    and len(computed_block_nums) > 0
+                    and self.sliding_window is None
+                    and is_prompt
+                )
 
                 # These are seq_len/context_len capped to the sliding window.
                 # They are passed to decode kernel.
@@ -351,13 +394,14 @@ class ModelRunner:
                 # TODO(sang): This is a hack to make sliding window work with
                 # paged attn. We can remove it if we make paged attn kernel
                 # to properly handle slinding window attn.
-                if (self.sliding_window is not None and not is_prompt):
+                if self.sliding_window is not None and not is_prompt:
                     curr_sliding_window_blocks = sliding_window_blocks
                     if self.scheduler_config.use_v2_block_manager:
                         # number of elements in last block
                         suff_len = seq_len % self.block_size
                         sliding_seq_len = min(
-                            seq_len, block_aligned_sliding_window + suff_len)
+                            seq_len, block_aligned_sliding_window + suff_len
+                        )
                         if suff_len > 0:
                             curr_sliding_window_blocks += 1
                     else:
@@ -374,8 +418,9 @@ class ModelRunner:
 
                     # need to think what to set it to when we have both sliding
                     # window and prefix caching...
-                    assert self.sliding_window is None, \
-                        "Prefix caching is not supported with sliding window"
+                    assert (
+                        self.sliding_window is None
+                    ), "Prefix caching is not supported with sliding window"
                     sliding_context_len = context_len
 
                     if self.attn_backend.get_name() == "flash-attn":
@@ -386,20 +431,23 @@ class ModelRunner:
                         block_table = seq_group_metadata.block_tables[seq_id]
                     else:
                         block_table = computed_block_nums
-                elif (self.scheduler_config.chunked_prefill_enabled
-                      or not is_prompt):
+                elif (
+                    self.scheduler_config.chunked_prefill_enabled
+                    or not is_prompt
+                ):
                     if seq_group_metadata.block_tables is not None:
                         # chunked prefill or decode
                         block_table = seq_group_metadata.block_tables[seq_id]
                         if curr_sliding_window_blocks is not None:
                             block_table = block_table[
-                                -curr_sliding_window_blocks:]
+                                -curr_sliding_window_blocks:
+                            ]
                         if self.attn_backend.get_name() == "flashinfer":
                             paged_kv_indices.extend(block_table)
-                            paged_kv_indptr.append(paged_kv_indptr[-1] +
-                                                   len(block_table))
-                            last_page_len = seq_data.get_len(
-                            ) % self.block_size
+                            paged_kv_indptr.append(
+                                paged_kv_indptr[-1] + len(block_table)
+                            )
+                            last_page_len = seq_data.get_len() % self.block_size
                             if last_page_len == 0:
                                 last_page_len = self.block_size
                             paged_kv_last_page_len.append(last_page_len)
@@ -426,9 +474,11 @@ class ModelRunner:
                     decode_only = False
                     prefill_seq_lens.append(seq_len)
                 else:
-                    assert query_len == 1, (
-                        "seq_len: {}, context_len: {}, query_len: {}".format(
-                            seq_len, context_len, query_len))
+                    assert (
+                        query_len == 1
+                    ), "seq_len: {}, context_len: {}, query_len: {}".format(
+                        seq_len, context_len, query_len
+                    )
                     num_decode_tokens += query_len
                     decode_seq_lens.append(sliding_seq_len)
 
@@ -437,10 +487,15 @@ class ModelRunner:
 
                 lora_index_mapping += [lora_id] * query_len
                 lora_prompt_mapping.extend(
-                    [lora_id] *
-                    (query_len if seq_group_metadata.sampling_params
-                     and seq_group_metadata.sampling_params.prompt_logprobs
-                     is not None else 1))
+                    [lora_id]
+                    * (
+                        query_len
+                        if seq_group_metadata.sampling_params
+                        and seq_group_metadata.sampling_params.prompt_logprobs
+                        is not None
+                        else 1
+                    )
+                )
 
                 mm_data = seq_group_metadata.multi_modal_data
                 if mm_data is not None:
@@ -448,7 +503,8 @@ class ModelRunner:
                     if self.multi_modal_input_processor is None:
                         raise ValueError(
                             "Multi-modal inputs are only supported by "
-                            "vision language models.")
+                            "vision language models."
+                        )
 
                     mm_kwargs = self.multi_modal_input_processor(mm_data)
                     for k, v in mm_kwargs.items():
@@ -474,10 +530,13 @@ class ModelRunner:
                 start_idx = 0
                 if self.sliding_window is not None:
                     if is_prompt:
-                        assert self.scheduler_config.use_v2_block_manager \
-                            or context_len == 0, (
+                        assert (
+                            self.scheduler_config.use_v2_block_manager
+                            or context_len == 0
+                        ), (
                             "Prefix caching is currently not supported with "
-                            "sliding window attention in V1 block manager")
+                            "sliding window attention in V1 block manager"
+                        )
                     # It is an optimization. When it is decoding, it is always
                     # 0. When prefill, we use it to not write slots to kv cache
                     # to save memory.
@@ -502,9 +561,11 @@ class ModelRunner:
         # See `capture_model` API for more details.
         # vLLM uses cuda graph only for decoding requests.
         use_captured_graph = (
-            decode_only and not self.model_config.enforce_eager
+            decode_only
+            and not self.model_config.enforce_eager
             and batch_size <= _BATCH_SIZES_TO_CAPTURE[-1]
-            and max_decode_seq_len <= self.max_seq_len_to_capture)
+            and max_decode_seq_len <= self.max_seq_len_to_capture
+        )
         if use_captured_graph:
             graph_batch_size = _get_graph_batch_size(batch_size)
             assert graph_batch_size >= batch_size
@@ -524,11 +585,12 @@ class ModelRunner:
             input_block_tables = self.graph_block_tables[:batch_size]
             for i, block_table in enumerate(block_tables):
                 if block_table:
-                    input_block_tables[i, :len(block_table)] = block_table
+                    input_block_tables[i, : len(block_table)] = block_table
             block_tables = torch.tensor(input_block_tables, device=self.device)
         else:
             max_block_table_len = max(
-                len(block_table) for block_table in block_tables)
+                len(block_table) for block_table in block_tables
+            )
             block_tables = make_tensor_with_pad(
                 block_tables,
                 max_len=max_block_table_len,
@@ -536,46 +598,51 @@ class ModelRunner:
                 dtype=torch.int,
                 device=self.device,
             )
-        assert max_query_len > 0, ("query_lens: {}".format(query_lens))
+        assert max_query_len > 0, "query_lens: {}".format(query_lens)
 
-        seq_lens_tensor = torch.tensor(seq_lens,
-                                       dtype=torch.int,
-                                       device=self.device)
-        seq_start_loc = torch.zeros(seq_lens_tensor.shape[0] + 1,
-                                    dtype=torch.int32,
-                                    device=self.device)
+        seq_lens_tensor = torch.tensor(
+            seq_lens, dtype=torch.int, device=self.device
+        )
+        seq_start_loc = torch.zeros(
+            seq_lens_tensor.shape[0] + 1, dtype=torch.int32, device=self.device
+        )
 
-        torch.cumsum(seq_lens_tensor,
-                     dim=0,
-                     dtype=seq_start_loc.dtype,
-                     out=seq_start_loc[1:])
+        torch.cumsum(
+            seq_lens_tensor,
+            dim=0,
+            dtype=seq_start_loc.dtype,
+            out=seq_start_loc[1:],
+        )
 
-        input_tokens_tensor = torch.tensor(input_tokens,
-                                           dtype=torch.long,
-                                           device=self.device)
-        input_positions_tensor = torch.tensor(input_positions,
-                                              dtype=torch.long,
-                                              device=self.device)
-        slot_mapping_tensor = torch.tensor(slot_mapping,
-                                           dtype=torch.long,
-                                           device=self.device)
+        input_tokens_tensor = torch.tensor(
+            input_tokens, dtype=torch.long, device=self.device
+        )
+        input_positions_tensor = torch.tensor(
+            input_positions, dtype=torch.long, device=self.device
+        )
+        slot_mapping_tensor = torch.tensor(
+            slot_mapping, dtype=torch.long, device=self.device
+        )
 
         if self.attn_backend.get_name() == "flashinfer":
             if not hasattr(self, "flashinfer_workspace_buffer"):
                 # Allocate 16MB workspace buffer
                 # Follow the example of flashinfer: https://docs.flashinfer.ai/api/python/decode.html
                 self.flashinfer_workspace_buffer = torch.empty(
-                    16 * 1024 * 1024, dtype=torch.uint8, device=self.device)
-            paged_kv_indptr_tensor = torch.tensor(paged_kv_indptr,
-                                                  dtype=torch.int,
-                                                  device=self.device)
-            paged_kv_indices_tensor = torch.tensor(paged_kv_indices,
-                                                   dtype=torch.int,
-                                                   device=self.device)
+                    16 * 1024 * 1024, dtype=torch.uint8, device=self.device
+                )
+            paged_kv_indptr_tensor = torch.tensor(
+                paged_kv_indptr, dtype=torch.int, device=self.device
+            )
+            paged_kv_indices_tensor = torch.tensor(
+                paged_kv_indices, dtype=torch.int, device=self.device
+            )
             paged_kv_last_page_len_tensor = torch.tensor(
-                paged_kv_last_page_len, dtype=torch.int, device=self.device)
-            kv_cache_dtype = get_kv_cache_torch_dtype(self.kv_cache_dtype,
-                                                      self.model_config.dtype)
+                paged_kv_last_page_len, dtype=torch.int, device=self.device
+            )
+            kv_cache_dtype = get_kv_cache_torch_dtype(
+                self.kv_cache_dtype, self.model_config.dtype
+            )
             attn_metadata = self.attn_backend.make_metadata(
                 num_prefills=num_prefills,
                 slot_mapping=slot_mapping_tensor,
@@ -589,28 +656,35 @@ class ModelRunner:
                 paged_kv_indices=paged_kv_indices_tensor,
                 paged_kv_last_page_len=paged_kv_last_page_len_tensor,
                 num_qo_heads=self.model_config.get_num_attention_heads(
-                    self.parallel_config),
+                    self.parallel_config
+                ),
                 num_kv_heads=self.model_config.get_num_kv_heads(
-                    self.parallel_config),
+                    self.parallel_config
+                ),
                 head_dim=self.model_config.get_head_size(),
                 page_size=16,
                 seq_start_loc=seq_start_loc,
-                data_type=kv_cache_dtype)
+                data_type=kv_cache_dtype,
+            )
         else:
-            context_lens_tensor = torch.tensor(context_lens,
-                                               dtype=torch.int,
-                                               device=self.device)
-            query_lens_tensor = torch.tensor(query_lens,
-                                             dtype=torch.long,
-                                             device=self.device)
-            query_start_loc = torch.zeros(query_lens_tensor.shape[0] + 1,
-                                          dtype=torch.int32,
-                                          device=self.device)
+            context_lens_tensor = torch.tensor(
+                context_lens, dtype=torch.int, device=self.device
+            )
+            query_lens_tensor = torch.tensor(
+                query_lens, dtype=torch.long, device=self.device
+            )
+            query_start_loc = torch.zeros(
+                query_lens_tensor.shape[0] + 1,
+                dtype=torch.int32,
+                device=self.device,
+            )
 
-            torch.cumsum(query_lens_tensor,
-                         dim=0,
-                         dtype=query_start_loc.dtype,
-                         out=query_start_loc[1:])
+            torch.cumsum(
+                query_lens_tensor,
+                dim=0,
+                dtype=query_start_loc.dtype,
+                out=query_start_loc[1:],
+            )
 
             attn_metadata = self.attn_backend.make_metadata(
                 num_prefills=num_prefills,
@@ -660,8 +734,15 @@ class ModelRunner:
     def prepare_input_tensors(
         self,
         seq_group_metadata_list: Optional[List[SequenceGroupMetadata]],
-    ) -> Tuple[torch.Tensor, torch.Tensor, AttentionMetadata, SamplingMetadata,
-               Set[LoRARequest], LoRAMapping, Dict[str, torch.Tensor]]:
+    ) -> Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        AttentionMetadata,
+        SamplingMetadata,
+        Set[LoRARequest],
+        LoRAMapping,
+        Dict[str, torch.Tensor],
+    ]:
         if self.is_driver_worker:
             assert seq_group_metadata_list is not None
             # Prepare input tensors.
@@ -680,14 +761,17 @@ class ModelRunner:
                 num_prefills,
             ) = self._prepare_model_input(seq_group_metadata_list)
             sampling_metadata = SamplingMetadata.prepare(
-                seq_group_metadata_list, seq_lens, query_lens, self.device,
-                self.pin_memory)
+                seq_group_metadata_list,
+                seq_lens,
+                query_lens,
+                self.device,
+                self.pin_memory,
+            )
 
             metadata_dict = {
                 "input_tokens": input_tokens,
                 "input_positions": input_positions,
-                "selected_token_indices":
-                sampling_metadata.selected_token_indices,
+                "selected_token_indices": sampling_metadata.selected_token_indices,
                 "lora_requests": lora_requests,
                 "lora_mapping": lora_mapping,
                 "multi_modal_kwargs": multi_modal_kwargs,
@@ -703,14 +787,12 @@ class ModelRunner:
             metadata_dict = broadcast_tensor_dict(src=0)
             input_tokens = metadata_dict.pop("input_tokens")
             input_positions = metadata_dict.pop("input_positions")
-            selected_token_indices = metadata_dict.pop(
-                "selected_token_indices")
+            selected_token_indices = metadata_dict.pop("selected_token_indices")
             lora_mapping = metadata_dict.pop("lora_mapping")
             lora_requests = metadata_dict.pop("lora_requests")
             multi_modal_kwargs = metadata_dict.pop("multi_modal_kwargs")
             if metadata_dict:
-                attn_metadata = self.attn_backend.make_metadata(
-                    **metadata_dict)
+                attn_metadata = self.attn_backend.make_metadata(**metadata_dict)
             else:
                 attn_metadata = None
             sampling_metadata = SamplingMetadata(
@@ -720,9 +802,15 @@ class ModelRunner:
                 num_prompts=0,
             )
 
-        return (input_tokens, input_positions, attn_metadata,
-                sampling_metadata, lora_requests, lora_mapping,
-                multi_modal_kwargs)
+        return (
+            input_tokens,
+            input_positions,
+            attn_metadata,
+            sampling_metadata,
+            lora_requests,
+            lora_mapping,
+            multi_modal_kwargs,
+        )
 
     @torch.inference_mode()
     def execute_model(
@@ -730,9 +818,15 @@ class ModelRunner:
         seq_group_metadata_list: Optional[List[SequenceGroupMetadata]],
         kv_caches: List[torch.Tensor],
     ) -> Optional[SamplerOutput]:
-        (input_tokens, input_positions, attn_metadata, sampling_metadata,
-         lora_requests, lora_mapping, multi_modal_kwargs
-         ) = self.prepare_input_tensors(seq_group_metadata_list)
+        (
+            input_tokens,
+            input_positions,
+            attn_metadata,
+            sampling_metadata,
+            lora_requests,
+            lora_mapping,
+            multi_modal_kwargs,
+        ) = self.prepare_input_tensors(seq_group_metadata_list)
 
         if self.lora_config:
             self.set_active_loras(lora_requests, lora_mapping)
@@ -791,8 +885,9 @@ class ModelRunner:
                         lora_int_id=lora_id,
                         lora_local_path="/not/a/real/path",
                     )
-                    self.lora_manager.add_dummy_lora(dummy_lora_request,
-                                                     rank=LORA_WARMUP_RANK)
+                    self.lora_manager.add_dummy_lora(
+                        dummy_lora_request, rank=LORA_WARMUP_RANK
+                    )
                     dummy_lora_requests.append(dummy_lora_request)
                 dummy_lora_requests_per_seq = [
                     dummy_lora_requests[idx % len(dummy_lora_requests)]
@@ -814,17 +909,22 @@ class ModelRunner:
         if vlm_config:
             max_num_seqs = min(
                 max_num_seqs,
-                int(max_num_batched_tokens / vlm_config.image_feature_size))
+                int(max_num_batched_tokens / vlm_config.image_feature_size),
+            )
         for group_id in range(max_num_seqs):
-            seq_len = (max_num_batched_tokens // max_num_seqs +
-                       (group_id < max_num_batched_tokens % max_num_seqs))
+            seq_len = max_num_batched_tokens // max_num_seqs + (
+                group_id < max_num_batched_tokens % max_num_seqs
+            )
 
             if vlm_config is None:
                 seq_data = SequenceData([0] * seq_len)
                 dummy_multi_modal_data = None
             else:
-                seq_data, dummy_multi_modal_data = MULTIMODAL_REGISTRY \
-                    .dummy_data_for_profiling(seq_len, model_config, vlm_config)
+                seq_data, dummy_multi_modal_data = (
+                    MULTIMODAL_REGISTRY.dummy_data_for_profiling(
+                        seq_len, model_config, vlm_config
+                    )
+                )
 
             seq = SequenceGroupMetadata(
                 request_id=str(group_id),
@@ -833,7 +933,8 @@ class ModelRunner:
                 sampling_params=sampling_params,
                 block_tables=None,
                 lora_request=dummy_lora_requests_per_seq[group_id]
-                if dummy_lora_requests_per_seq else None,
+                if dummy_lora_requests_per_seq
+                else None,
                 multi_modal_data=dummy_multi_modal_data,
             )
             seqs.append(seq)
@@ -850,8 +951,9 @@ class ModelRunner:
             raise RuntimeError("LoRA is not enabled.")
         self.lora_manager.remove_all_loras()
 
-    def set_active_loras(self, lora_requests: Set[LoRARequest],
-                         lora_mapping: LoRAMapping) -> None:
+    def set_active_loras(
+        self, lora_requests: Set[LoRARequest], lora_mapping: LoRAMapping
+    ) -> None:
         if not self.lora_manager:
             raise RuntimeError("LoRA is not enabled.")
         self.lora_manager.set_active_loras(lora_requests, lora_mapping)
@@ -886,15 +988,19 @@ class ModelRunner:
         per sequence in the batch.
         """
         assert not self.model_config.enforce_eager
-        logger.info("Capturing the model for CUDA graphs. This may lead to "
-                    "unexpected consequences if the model is not static. To "
-                    "run the model in eager mode, set 'enforce_eager=True' or "
-                    "use '--enforce-eager' in the CLI.")
-        logger.info("CUDA graphs can take additional 1~3 GiB memory per GPU. "
-                    "If you are running out of memory, consider decreasing "
-                    "`gpu_memory_utilization` or enforcing eager mode. "
-                    "You can also reduce the `max_num_seqs` as needed "
-                    "to decrease memory usage.")
+        logger.info(
+            "Capturing the model for CUDA graphs. This may lead to "
+            "unexpected consequences if the model is not static. To "
+            "run the model in eager mode, set 'enforce_eager=True' or "
+            "use '--enforce-eager' in the CLI."
+        )
+        logger.info(
+            "CUDA graphs can take additional 1~3 GiB memory per GPU. "
+            "If you are running out of memory, consider decreasing "
+            "`gpu_memory_utilization` or enforcing eager mode. "
+            "You can also reduce the `max_num_seqs` as needed "
+            "to decrease memory usage."
+        )
         start_time = time.perf_counter()
 
         # Prepare dummy inputs. These will be reused for all batch sizes.
@@ -911,7 +1017,8 @@ class ModelRunner:
         hidden_states: Optional[torch.Tensor] = None
 
         graph_batch_size = _get_graph_batch_size(
-            self.scheduler_config.max_num_seqs)
+            self.scheduler_config.max_num_seqs
+        )
         batch_size_capture_list = [
             bs for bs in _BATCH_SIZES_TO_CAPTURE if bs <= graph_batch_size
         ]
@@ -950,7 +1057,8 @@ class ModelRunner:
                     input_tokens[:batch_size],
                     input_positions[:batch_size],
                     hidden_states[:batch_size]
-                    if hidden_states is not None else None,
+                    if hidden_states is not None
+                    else None,
                     kv_caches,
                     attn_metadata,
                     memory_pool=self.graph_memory_pool,
@@ -970,7 +1078,6 @@ class ModelRunner:
 
 
 class CUDAGraphRunner:
-
     def __init__(self, model: nn.Module):
         self.model = model
         self.input_buffers: Dict[str, torch.Tensor] = {}
@@ -1055,12 +1162,15 @@ class CUDAGraphRunner:
         # Copy the input tensors to the input buffers.
         self.input_buffers["input_ids"].copy_(input_ids, non_blocking=True)
         self.input_buffers["positions"].copy_(positions, non_blocking=True)
-        self.input_buffers["slot_mapping"].copy_(attn_metadata.slot_mapping,
-                                                 non_blocking=True)
+        self.input_buffers["slot_mapping"].copy_(
+            attn_metadata.slot_mapping, non_blocking=True
+        )
         self.input_buffers["seq_lens_tensor"].copy_(
-            attn_metadata.decode_metadata.seq_lens_tensor, non_blocking=True)
+            attn_metadata.decode_metadata.seq_lens_tensor, non_blocking=True
+        )
         self.input_buffers["block_tables"].copy_(
-            attn_metadata.decode_metadata.block_tables, non_blocking=True)
+            attn_metadata.decode_metadata.block_tables, non_blocking=True
+        )
         # Run the graph.
         self.graph.replay()
 
@@ -1082,8 +1192,11 @@ def _get_graph_batch_size(batch_size: int) -> int:
     elif batch_size <= 4:
         return 4
     else:
-        return ((batch_size + _BATCH_SIZE_ALIGNMENT - 1) //
-                _BATCH_SIZE_ALIGNMENT * _BATCH_SIZE_ALIGNMENT)
+        return (
+            (batch_size + _BATCH_SIZE_ALIGNMENT - 1)
+            // _BATCH_SIZE_ALIGNMENT
+            * _BATCH_SIZE_ALIGNMENT
+        )
 
 
 def _is_block_tables_empty(block_tables: Union[None, Dict]):
@@ -1093,6 +1206,7 @@ def _is_block_tables_empty(block_tables: Union[None, Dict]):
     if block_tables is None:
         return True
     if isinstance(block_tables, dict) and all(
-            value is None for value in block_tables.values()):
+        value is None for value in block_tables.values()
+    ):
         return True
     return False

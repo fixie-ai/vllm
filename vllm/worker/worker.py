@@ -1,4 +1,5 @@
 """A GPU worker class."""
+
 import gc
 import os
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
@@ -6,13 +7,24 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import torch
 import torch.distributed
 
-from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
-                         ModelConfig, ParallelConfig, SchedulerConfig,
-                         SpeculativeConfig, VisionLanguageConfig)
-from vllm.distributed import (broadcast_tensor_dict,
-                              ensure_model_parallel_initialized,
-                              init_distributed_environment,
-                              set_custom_all_reduce)
+from vllm.config import (
+    CacheConfig,
+    DeviceConfig,
+    LoadConfig,
+    LoRAConfig,
+    ModelConfig,
+    ParallelConfig,
+    SchedulerConfig,
+    SpeculativeConfig,
+    VisionLanguageConfig,
+    AudioLanguageConfig,
+)
+from vllm.distributed import (
+    broadcast_tensor_dict,
+    ensure_model_parallel_initialized,
+    init_distributed_environment,
+    set_custom_all_reduce,
+)
 from vllm.lora.request import LoRARequest
 from vllm.model_executor import set_random_seed
 from vllm.model_executor.model_loader.tensorizer import TensorizerConfig
@@ -44,6 +56,7 @@ class Worker(WorkerBase):
         distributed_init_method: str,
         lora_config: Optional[LoRAConfig] = None,
         vision_language_config: Optional[VisionLanguageConfig] = None,
+        audio_language_config: Optional[AudioLanguageConfig] = None,
         speculative_config: Optional[SpeculativeConfig] = None,
         is_driver_worker: bool = False,
     ) -> None:
@@ -64,14 +77,20 @@ class Worker(WorkerBase):
         if self.model_config.trust_remote_code:
             # note: lazy import to avoid importing torch before initializing
             from vllm.utils import init_cached_hf_modules
+
             init_cached_hf_modules()
         self.vision_language_config = vision_language_config
-        if self.vision_language_config:
-            assert not self.lora_config, (
-                "To be tested: vision language model with LoRA settings.")
+        self.audio_language_config = audio_language_config
+        if self.vision_language_config or self.audio_language_config:
+            assert (
+                not self.lora_config
+            ), "To be tested: vision language model with LoRA settings."
 
-        ModelRunnerClass = (EmbeddingModelRunner if
-                            self.model_config.embedding_mode else ModelRunner)
+        ModelRunnerClass = (
+            EmbeddingModelRunner
+            if self.model_config.embedding_mode
+            else ModelRunner
+        )
         self.model_runner = ModelRunnerClass(
             model_config,
             parallel_config,
@@ -83,6 +102,7 @@ class Worker(WorkerBase):
             kv_cache_dtype=self.cache_config.cache_dtype,
             is_driver_worker=is_driver_worker,
             vision_language_config=vision_language_config,
+            audio_language_config=audio_language_config,
         )
         # Uninitialized cache engine. Will be initialized by
         # initialize_cache.
@@ -110,11 +130,15 @@ class Worker(WorkerBase):
             self.init_gpu_memory = torch.cuda.mem_get_info()[0]
         else:
             raise RuntimeError(
-                f"Not support device type: {self.device_config.device}")
+                f"Not support device type: {self.device_config.device}"
+            )
         # Initialize the distributed environment.
-        init_worker_distributed_environment(self.parallel_config, self.rank,
-                                            self.distributed_init_method,
-                                            self.local_rank)
+        init_worker_distributed_environment(
+            self.parallel_config,
+            self.rank,
+            self.distributed_init_method,
+            self.local_rank,
+        )
         # Set random seed.
         set_random_seed(self.model_config.seed)
 
@@ -138,7 +162,8 @@ class Worker(WorkerBase):
         tensorizer_config: TensorizerConfig,
     ) -> None:
         self.model_runner.save_tensorized_model(
-            tensorizer_config=tensorizer_config, )
+            tensorizer_config=tensorizer_config,
+        )
 
     @torch.inference_mode()
     def determine_num_available_blocks(self) -> Tuple[int, int]:
@@ -170,14 +195,20 @@ class Worker(WorkerBase):
         peak_memory = self.init_gpu_memory - free_gpu_memory
         assert peak_memory > 0, (
             "Error in memory profiling. This happens when the GPU memory was "
-            "not properly cleaned up before initializing the vLLM instance.")
+            "not properly cleaned up before initializing the vLLM instance."
+        )
 
         cache_block_size = self.get_cache_block_size_bytes()
         num_gpu_blocks = int(
-            (total_gpu_memory * self.cache_config.gpu_memory_utilization -
-             peak_memory) // cache_block_size)
-        num_cpu_blocks = int(self.cache_config.swap_space_bytes //
-                             cache_block_size)
+            (
+                total_gpu_memory * self.cache_config.gpu_memory_utilization
+                - peak_memory
+            )
+            // cache_block_size
+        )
+        num_cpu_blocks = int(
+            self.cache_config.swap_space_bytes // cache_block_size
+        )
         num_gpu_blocks = max(num_gpu_blocks, 0)
         num_cpu_blocks = max(num_cpu_blocks, 0)
         if self.model_runner.lora_manager:
@@ -186,15 +217,18 @@ class Worker(WorkerBase):
         torch.cuda.empty_cache()
         return num_gpu_blocks, num_cpu_blocks
 
-    def initialize_cache(self, num_gpu_blocks: int,
-                         num_cpu_blocks: int) -> None:
+    def initialize_cache(
+        self, num_gpu_blocks: int, num_cpu_blocks: int
+    ) -> None:
         """Allocate GPU and CPU KV cache with the specified number of blocks.
 
         This also warms up the model, which may record CUDA graphs.
         """
-        raise_if_cache_size_invalid(num_gpu_blocks,
-                                    self.cache_config.block_size,
-                                    self.model_config.max_model_len)
+        raise_if_cache_size_invalid(
+            num_gpu_blocks,
+            self.cache_config.block_size,
+            self.model_config.max_model_len,
+        )
 
         self.cache_config.num_gpu_blocks = num_gpu_blocks
         self.cache_config.num_cpu_blocks = num_cpu_blocks
@@ -204,8 +238,9 @@ class Worker(WorkerBase):
 
     def _init_cache_engine(self):
         assert self.cache_config.num_gpu_blocks is not None
-        self.cache_engine = CacheEngine(self.cache_config, self.model_config,
-                                        self.parallel_config)
+        self.cache_engine = CacheEngine(
+            self.cache_config, self.model_config, self.parallel_config
+        )
         self.gpu_cache = self.cache_engine.gpu_cache
 
     def _warm_up_model(self) -> None:
@@ -231,8 +266,7 @@ class Worker(WorkerBase):
 
     @torch.inference_mode()
     def execute_model(
-        self,
-        execute_model_req: Optional[ExecuteModelRequest] = None
+        self, execute_model_req: Optional[ExecuteModelRequest] = None
     ) -> List[Union[SamplerOutput, PoolerOutput]]:
         if not self.is_driver_worker:
             self._execute_model_non_driver()
@@ -251,18 +285,22 @@ class Worker(WorkerBase):
         num_seq_groups = len(seq_group_metadata_list)
         # `blocks_to_swap_in` and `blocks_to_swap_out` are cpu tensors.
         # they contain parameters to launch cudamemcpyasync.
-        blocks_to_swap_in = torch.tensor(execute_model_req.blocks_to_swap_in,
-                                         device="cpu",
-                                         dtype=torch.int64).view(-1, 2)
-        blocks_to_swap_out = torch.tensor(execute_model_req.blocks_to_swap_out,
-                                          device="cpu",
-                                          dtype=torch.int64).view(-1, 2)
+        blocks_to_swap_in = torch.tensor(
+            execute_model_req.blocks_to_swap_in, device="cpu", dtype=torch.int64
+        ).view(-1, 2)
+        blocks_to_swap_out = torch.tensor(
+            execute_model_req.blocks_to_swap_out,
+            device="cpu",
+            dtype=torch.int64,
+        ).view(-1, 2)
         # `blocks_to_copy` is a gpu tensor. The src and tgt of
         # blocks to copy are in the same device, and `blocks_to_copy`
         # can be used directly within cuda kernels.
-        blocks_to_copy = torch.tensor(execute_model_req.blocks_to_copy,
-                                      device=self.device,
-                                      dtype=torch.int64).view(-1, 2)
+        blocks_to_copy = torch.tensor(
+            execute_model_req.blocks_to_copy,
+            device=self.device,
+            dtype=torch.int64,
+        ).view(-1, 2)
         data: Dict[str, Any] = {
             "num_seq_groups": num_seq_groups,
             "blocks_to_swap_in": blocks_to_swap_in,
@@ -277,8 +315,9 @@ class Worker(WorkerBase):
         if num_seq_groups == 0:
             return []
 
-        output = self.model_runner.execute_model(seq_group_metadata_list,
-                                                 self.gpu_cache)
+        output = self.model_runner.execute_model(
+            seq_group_metadata_list, self.gpu_cache
+        )
 
         # Worker only supports single-step execution. Wrap the output in a list
         # to conform to interface.
@@ -335,11 +374,10 @@ class Worker(WorkerBase):
         return self.model_runner.vocab_size
 
     def get_cache_block_size_bytes(self) -> int:
-        """Get the size of the KV cache block size in bytes.
-        """
-        return CacheEngine.get_cache_block_size(self.cache_config,
-                                                self.model_config,
-                                                self.parallel_config)
+        """Get the size of the KV cache block size in bytes."""
+        return CacheEngine.get_cache_block_size(
+            self.cache_config, self.model_config, self.parallel_config
+        )
 
 
 def init_worker_distributed_environment(
@@ -351,11 +389,14 @@ def init_worker_distributed_environment(
     """Initialize the distributed environment."""
     set_custom_all_reduce(not parallel_config.disable_custom_all_reduce)
 
-    init_distributed_environment(parallel_config.world_size, rank,
-                                 distributed_init_method, local_rank)
+    init_distributed_environment(
+        parallel_config.world_size, rank, distributed_init_method, local_rank
+    )
 
-    ensure_model_parallel_initialized(parallel_config.tensor_parallel_size,
-                                      parallel_config.pipeline_parallel_size)
+    ensure_model_parallel_initialized(
+        parallel_config.tensor_parallel_size,
+        parallel_config.pipeline_parallel_size,
+    )
 
 
 def _check_if_gpu_supports_dtype(torch_dtype: torch.dtype):
@@ -369,15 +410,19 @@ def _check_if_gpu_supports_dtype(torch_dtype: torch.dtype):
                 f"of at least 8.0. Your {gpu_name} GPU has compute capability "
                 f"{compute_capability[0]}.{compute_capability[1]}. "
                 "You can use float16 instead by explicitly setting the"
-                "`dtype` flag in CLI, for example: --dtype=half.")
+                "`dtype` flag in CLI, for example: --dtype=half."
+            )
 
 
-def raise_if_cache_size_invalid(num_gpu_blocks, block_size,
-                                max_model_len) -> None:
+def raise_if_cache_size_invalid(
+    num_gpu_blocks, block_size, max_model_len
+) -> None:
     if num_gpu_blocks <= 0:
-        raise ValueError("No available memory for the cache blocks. "
-                         "Try increasing `gpu_memory_utilization` when "
-                         "initializing the engine.")
+        raise ValueError(
+            "No available memory for the cache blocks. "
+            "Try increasing `gpu_memory_utilization` when "
+            "initializing the engine."
+        )
     max_seq_len = block_size * num_gpu_blocks
     if max_model_len > max_seq_len:
         raise ValueError(
@@ -385,4 +430,5 @@ def raise_if_cache_size_invalid(num_gpu_blocks, block_size,
             "is larger than the maximum number of tokens that can be "
             f"stored in KV cache ({max_seq_len}). Try increasing "
             "`gpu_memory_utilization` or decreasing `max_model_len` when "
-            "initializing the engine.")
+            "initializing the engine."
+        )

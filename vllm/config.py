@@ -1102,6 +1102,10 @@ class LoRAConfig:
 
 
 @dataclass
+class AudioLanguageConfig:
+    audio_token_id: int
+
+@dataclass
 class VisionLanguageConfig:
     """Configs the input data format and how models should run for
     vision language models."""
@@ -1376,6 +1380,7 @@ class EngineConfig:
     load_config: LoadConfig
     lora_config: Optional[LoRAConfig]
     vision_language_config: Optional[VisionLanguageConfig]
+    audio_language_config: Optional[AudioLanguageConfig]
     speculative_config: Optional[SpeculativeConfig]
     decoding_config: Optional[DecodingConfig]
 

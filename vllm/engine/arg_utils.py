@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple, Union
 from vllm.config import (CacheConfig, DecodingConfig, DeviceConfig,
                          EngineConfig, LoadConfig, LoRAConfig, ModelConfig,
                          ParallelConfig, SchedulerConfig, SpeculativeConfig,
-                         TokenizerPoolConfig, VisionLanguageConfig)
+                         TokenizerPoolConfig, VisionLanguageConfig, AudioLanguageConfig)
 from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 from vllm.utils import str_to_int_tuple
 
@@ -89,6 +89,7 @@ class EngineArgs:
 
     scheduler_delay_factor: float = 0.0
     enable_chunked_prefill: bool = False
+    audio_token_id: Optional[int] = None
 
     guided_decoding_backend: str = 'outlines'
     # Speculative decoding configuration.
@@ -752,6 +753,10 @@ class EngineArgs:
             )
         else:
             vision_language_config = None
+        if self.audio_token_id:
+            audio_language_config = AudioLanguageConfig(audio_token_id=self.audio_token_id)
+        else:
+            audio_language_config = None
 
         decoding_config = DecodingConfig(
             guided_decoding_backend=self.guided_decoding_backend)
@@ -770,6 +775,7 @@ class EngineArgs:
                             device_config=device_config,
                             lora_config=lora_config,
                             vision_language_config=vision_language_config,
+                            audio_language_config=audio_language_config,
                             speculative_config=speculative_config,
                             load_config=load_config,
                             decoding_config=decoding_config)
