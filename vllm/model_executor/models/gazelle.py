@@ -15,7 +15,7 @@
 # limitations under the License.
 """PyTorch Gazelle model."""
 
-from typing import Any, Iterable, List, Optional, Tuple, Union
+from typing import Iterable, List, Optional, Tuple
 
 
 import torch
@@ -23,19 +23,11 @@ import torch.utils.checkpoint
 from torch import nn
 from torch.nn import functional as F
 
-import transformers
-from transformers import AutoModel, AutoModelForCausalLM, CONFIG_MAPPING, PretrainedConfig, ProcessorMixin, TensorType, BatchFeature
+from transformers import AutoModel, AutoModelForCausalLM, CONFIG_MAPPING, PretrainedConfig
 from transformers import logging
-from transformers.tokenization_utils_base import (
-    PaddingStrategy,
-    PreTokenizedInput,
-    TextInput,
-    TruncationStrategy,
-)
 
 from vllm.attention import AttentionMetadata
 from vllm.config import AudioLanguageConfig
-from vllm.model_executor.layers.activation import get_act_fn
 from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig)
@@ -248,10 +240,14 @@ class GazelleProjector(ProjectionLayer):
 
 class GazelleForConditionalGeneration(nn.Module):
     def __init__(self, config: GazelleConfig, audio_language_config: AudioLanguageConfig, quant_config: Optional["QuantizationConfig"] = None):
-        from vllm.model_executor.models.llama import LlamaModel
+        from vllm.model_executor.models.llama import LlamaModel, LlamaForCausalLM
         super().__init__()
+        logger.info(config)
         self.config = config
+
         self.audio_language_config = audio_language_config
+        assert self.audio_language_config
+
         if config.audio_model_id is not None:
             self.audio_tower = AutoModel.from_pretrained(config.audio_model_id)
         else:
@@ -261,24 +257,21 @@ class GazelleForConditionalGeneration(nn.Module):
         self.vocab_size = config.vocab_size
         self.quant_config = quant_config
         
-        if config.text_model_id is not None:
-            self.language_model = AutoModelForCausalLM.from_pretrained(
-                config.text_model_id, attn_implementation=config._attn_implementation
-            )
-        else:
+        self.model = LlamaForCausalLM(config.text_config, quant_config)
+        if False:
             self.language_model = LlamaModel(config.text_config, quant_config)
-        self.unpadded_vocab_size = config.text_config.vocab_size
-        self.lm_head = ParallelLMHead(
-            self.unpadded_vocab_size,
-            config.text_config.hidden_size,
-            org_num_embeddings=self.language_model.org_vocab_size)
-        logit_scale = getattr(config, "logit_scale", 1.0)
-        self.logits_processor = LogitsProcessor(self.unpadded_vocab_size,
-                                                config.vocab_size, logit_scale)
-        self.sampler = Sampler()
-        self.pad_token_id = (
-            config.pad_token_id if config.pad_token_id is not None else -1
-        )
+            self.unpadded_vocab_size = config.text_config.vocab_size
+            self.lm_head = ParallelLMHead(
+                self.unpadded_vocab_size,
+                config.text_config.hidden_size,
+                org_num_embeddings=self.language_model.org_vocab_size)
+            logit_scale = getattr(config, "logit_scale", 1.0)
+            self.logits_processor = LogitsProcessor(self.unpadded_vocab_size,
+                                                    config.vocab_size, logit_scale)
+            self.sampler = Sampler()
+            self.pad_token_id = (
+                config.pad_token_id if config.pad_token_id is not None else -1
+            )
 
     """
     def resize_token_embeddings(
@@ -443,6 +436,8 @@ class GazelleForConditionalGeneration(nn.Module):
                 For PIXEL_VALUES, expecting [1, 3, 336, 336].
                 For IMAGE_FEATURES, expecting [1, 576, 1024].
         """
+        if self.model:
+            return self.model.forward(input_ids, positions, kv_caches, attn_metadata)           
         #logger.info(f"input_ids {input_ids}")
         #logger.info(f"positions {positions}")
         #logger.info(f"kv_caches {[kv_cache.shape for kv_cache in kv_caches if kv_cache is not None]}")
@@ -477,21 +472,29 @@ class GazelleForConditionalGeneration(nn.Module):
                 self.audio_language_config.audio_token_id)
             logger.info(f"input_ids: {input_ids}")
             logger.info(f"input_embs: {inputs_embeds.shape}")
+            logger.info(f"input_emb1: {inputs_embeds[1]}")
             input_ids = None
-        else:
+        else:            
             inputs_embeds = None
+        
         hidden_states = self.language_model(input_ids=input_ids,
                                             positions=positions,
                                             kv_caches=kv_caches,
                                             attn_metadata=attn_metadata,
                                             inputs_embeds=inputs_embeds)
-
+        if audio_input is not None:
+            logger.info(f"hidden_states: {hidden_states.shape}")
+            logger.info(f"hs0: {hidden_states[0]}")
+        
         return hidden_states
 
     def compute_logits(self, hidden_states: torch.Tensor,
                        sampling_metadata: SamplingMetadata) -> torch.Tensor:
+        if self.model:
+            return self.model.compute_logits(hidden_states, sampling_metadata)
         logits = self.logits_processor(self.lm_head.weight, hidden_states,
                                        sampling_metadata)
+        logger.info(f"logits={logits}")
         return logits
 
     def sample(
@@ -499,82 +502,15 @@ class GazelleForConditionalGeneration(nn.Module):
         logits: torch.Tensor,
         sampling_metadata: SamplingMetadata,
     ) -> Optional[SamplerOutput]:
+        if self.model:
+            return self.model.sample(logits, sampling_metadata)
         next_tokens = self.sampler(logits, sampling_metadata)
+        logger.info(f"next_tokens={next_tokens}")
         return next_tokens
     
 
-    def prepare_inputs_for_generation(
-        self,
-        input_ids,
-        past_key_values=None,
-        inputs_embeds=None,
-        audio_values=None,
-        attention_mask=None,
-        **kwargs,
-    ):
-        if past_key_values is not None:
-            if isinstance(past_key_values, Cache):
-                cache_length = past_key_values.get_seq_length()
-                past_length = past_key_values.seen_tokens
-            else:
-                cache_length = past_length = past_key_values[0][0].shape[2]
-
-            # Keep only the unprocessed tokens:
-            # 1 - If the length of the attention_mask exceeds the length of input_ids, then we are in a setting where
-            # some of the inputs are exclusively passed as part of the cache (e.g. when passing input_embeds as
-            # input)
-            if (
-                attention_mask is not None
-                and attention_mask.shape[1] > input_ids.shape[1]
-            ):
-                input_ids = input_ids[:, -(attention_mask.shape[1] - past_length) :]
-            # 2 - If the past_length is smaller than input_ids', then input_ids holds all input tokens. We can discard
-            # input_ids based on the past_length.
-            elif past_length < input_ids.shape[1]:
-                input_ids = input_ids[:, past_length:]
-            # 3 - Otherwise (past_length >= input_ids.shape[1]), let's assume input_ids only has unprocessed tokens.
-            elif self.config.audio_token_index in input_ids:
-                input_ids = input_ids[:, input_ids.shape[1] - 1 :]
-            # If the cache has seen more tokens than it can hold, then the cache has a size limit. Let's discard the
-            # older attention values, as their corresponding values are not part of the input.
-            if cache_length < past_length and attention_mask is not None:
-                attention_mask = attention_mask[
-                    :, -(cache_length + input_ids.shape[1]) :
-                ]
-
-        position_ids = kwargs.get("position_ids", None)
-        if attention_mask is not None and position_ids is None:
-            # create position_ids on the fly for batch generation
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
-            if past_key_values:
-                position_ids = position_ids[:, -input_ids.shape[1] :]
-
-        # if `inputs_embeds` are passed, we only want to use them in the 1st generation step
-        if inputs_embeds is not None and past_key_values is None:
-            model_inputs = {"inputs_embeds": inputs_embeds}
-        else:
-            model_inputs = {"input_ids": input_ids}
-
-        model_inputs.update(
-            {
-                "position_ids": position_ids,
-                "past_key_values": past_key_values,
-                "use_cache": kwargs.get("use_cache"),
-                "attention_mask": attention_mask,
-                "audio_values": audio_values,
-            }
-        )
-        return model_inputs
-
-    def _reorder_cache(self, *args, **kwargs):
-        return self.language_model._reorder_cache(*args, **kwargs)
-    
-
-
-    def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
-        from vllm.model_executor.model_loader.weight_utils import default_weight_loader
-
+    def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):  
+        from vllm.model_executor.model_loader.weight_utils import default_weight_loader             
         # only doing this for language model part for now.
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)
@@ -585,15 +521,15 @@ class GazelleForConditionalGeneration(nn.Module):
             ("gate_up_proj", "up_proj", 1),
         ]
         params_dict = dict(self.named_parameters())    
-        #for key in params_dict.keys():
-        #    logger.info(f"param: {key}")        
+        for key in params_dict.keys():
+            logger.info(f"param: {key}")        
         for name, loaded_weight in weights:
-            #logger.info(f"weight: {name}")
+            logger.info(f"weight: {name}, norm: {torch.norm(loaded_weight)}")
             if "rotary_emb.inv_freq" in name:
                 continue
             for key_to_modify, new_key in _KEYS_TO_MODIFY_MAPPING.items():
                 if key_to_modify in name:
-                    name = name.replace(key_to_modify, new_key)
+                    name = name.replace(key_to_modify, new_key)              
             use_default_weight_loading = False
             if "audio" in name:
                 if self.audio_tower is not None:
@@ -618,163 +554,4 @@ class GazelleForConditionalGeneration(nn.Module):
                                         default_weight_loader)
                 weight_loader(param, loaded_weight)
 
-
-
-# coding=utf-8
-# Copyright 2023 The HuggingFace Inc. team.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-Processor class for Gazelle.
-"""
-
-
-class GazelleProcessor(ProcessorMixin):
-    r"""
-    Constructs a Gazelle processor which wraps a Gazelle image processor and a Gazelle tokenizer into a single processor.
-
-    [`GazelleProcessor`] offers all the functionalities of [`Wav2Vec2Processor`] and [`LlamaTokenizerFast`]. See the
-    [`~GazelleProcessor.__call__`] and [`~GazelleProcessor.decode`] for more information.
-
-    Args:
-        audio_processor ([`Wav2Vec2Processor`, `SeamlessM4TFeatureExtractor`], *optional*):
-            The audio processor is a required input.
-        tokenizer ([`LlamaTokenizerFast`], *optional*):
-            The tokenizer is a required input.
-    """
-
-    attributes = ["audio_processor", "tokenizer"]
-    audio_processor_class = (
-        "Wav2Vec2Processor",
-        "SeamlessM4TFeatureExtractor",
-    )
-    tokenizer_class = (
-        "LlamaTokenizer",
-        "LlamaTokenizerFast",
-    )
-
-    def __init__(self, audio_processor=None, tokenizer=None):
-        super().__init__(audio_processor, tokenizer)
-
-    def __call__(
-        self,
-        text: Union[
-            TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]
-        ] = None,
-        audio=None,
-        text_padding: Union[bool, str, PaddingStrategy] = False,
-        text_truncation: Union[bool, str, TruncationStrategy] = None,
-        text_max_length=None,
-        audio_padding: Union[bool, str, PaddingStrategy] = False,
-        audio_truncation: Union[bool, str, TruncationStrategy] = None,
-        audio_max_length=None,
-        return_tensors: Optional[Union[str, TensorType]] = TensorType.PYTORCH,
-        sampling_rate: int = 16000,
-    ) -> BatchFeature:
-        """
-        Main method to prepare for the model one or several sequences(s) and image(s). This method forwards the `text`
-        and `kwargs` arguments to LlamaTokenizerFast's [`~LlamaTokenizerFast.__call__`] if `text` is not `None` to encode
-        the text. To prepare the image(s), this method forwards the `images` and `kwrags` arguments to
-        CLIPImageProcessor's [`~CLIPImageProcessor.__call__`] if `images` is not `None`. Please refer to the doctsring
-        of the above two methods for more information.
-
-        Args:
-            text (`str`, `List[str]`, `List[List[str]]`):
-                The sequence or batch of sequences to be encoded. Each sequence can be a string or a list of strings
-                (pretokenized string). If the sequences are provided as list of strings (pretokenized), you must set
-                `is_split_into_words=True` (to lift the ambiguity with a batch of sequences).
-            audio (`np.ndarray`, `torch.Tensor`, `List[np.ndarray]`, `List[torch.Tensor]`):
-                 The audio or batch of audios to be prepared. Each audio can be NumPy array or PyTorch tensor. In case of a
-                NumPy array/PyTorch tensor, each audio should be of shape (C, T), where C is a number of channels, and T the
-                sample length of the audio.
-            audio_padding (`bool`, `str` or [`~utils.PaddingStrategy`], *optional*, defaults to `False`):
-                Select a strategy to pad the returned sequences (according to the model's padding side and padding
-                index) among:
-                - `True` or `'longest'`: Pad to the longest sequence in the batch (or no padding if only a single
-                  sequence if provided).
-                - `'max_length'`: Pad to a maximum length specified with the argument `max_length` or to the maximum
-                  acceptable input length for the model if that argument is not provided.
-                - `False` or `'do_not_pad'` (default): No padding (i.e., can output a batch with sequences of different
-                  lengths).
-            audio_max_length (`int`, *optional*):
-                Maximum length of the returned list and optionally padding length (see above).
-            audio_truncation (`bool`, *optional*):
-                Activates truncation to cut input sequences longer than `max_length` to `max_length`.
-            return_tensors (`str` or [`~utils.TensorType`], *optional*):
-                If set, will return tensors of a particular framework. Acceptable values are:
-
-                - `'tf'`: Return TensorFlow `tf.constant` objects.
-                - `'pt'`: Return PyTorch `torch.Tensor` objects.
-                - `'np'`: Return NumPy `np.ndarray` objects.
-                - `'jax'`: Return JAX `jnp.ndarray` objects.
-            sampling_rate (`int`, *optional*, defaults to 16000):
-                Sampling rate of the input audio. We expect 16kHz audio. Don't change this value unless you know what
-                you are doing.
-
-        Returns:
-            [`BatchFeature`]: A [`BatchFeature`] with the following fields:
-
-            - **input_ids** -- List of token ids to be fed to a model. Returned when `text` is not `None`.
-            - **attention_mask** -- List of indices specifying which tokens should be attended to by the model (when
-              `return_attention_mask=True` or if *"attention_mask"* is in `self.model_input_names` and if `text` is not
-              `None`).
-            - **audio_values** -- Processed audio values to be fed to a model. Returned when `audios` is not `None`.
-        """
-        if audio is not None and len(audio) > 0:
-            x = self.audio_processor(
-                audio,
-                return_tensors=return_tensors,
-                sampling_rate=sampling_rate,
-                padding=audio_padding,
-                truncation=audio_truncation,
-                max_length=audio_max_length,
-            )
-            audio_values = x.input_values  # features
-        else:
-            audio_values = None
-        if text is not None:
-            text_inputs = self.tokenizer(
-                text,
-                return_tensors=return_tensors,
-                padding=text_padding,
-                truncation=text_truncation,
-                max_length=text_max_length,
-            )
-            return BatchFeature(data={**text_inputs, "audio_values": audio_values})
-        else:
-            return BatchFeature(data={"audio_values": audio_values})
-
-    # Copied from transformers.models.clip.processing_clip.CLIPProcessor.batch_decode with CLIP->Llama
-    def batch_decode(self, *args, **kwargs):
-        """
-        This method forwards all its arguments to LlamaTokenizerFast's [`~PreTrainedTokenizer.batch_decode`]. Please
-        refer to the docstring of this method for more information.
-        """
-        return self.tokenizer.batch_decode(*args, **kwargs)
-
-    # Copied from transformers.models.clip.processing_clip.CLIPProcessor.decode with CLIP->Llama
-    def decode(self, *args, **kwargs):
-        """
-        This method forwards all its arguments to LlamaTokenizerFast's [`~PreTrainedTokenizer.decode`]. Please refer to
-        the docstring of this method for more information.
-        """
-        return self.tokenizer.decode(*args, **kwargs)
-
-    @property
-    # Copied from transformers.models.clip.processing_clip.CLIPProcessor.model_input_names
-    def model_input_names(self):
-        tokenizer_input_names = self.tokenizer.model_input_names
-        audio_processor_input_names = self.audio_processor_class.model_input_names
-        return list(dict.fromkeys(tokenizer_input_names + audio_processor_input_names))
-    
 
