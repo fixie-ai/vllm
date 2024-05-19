@@ -5,7 +5,8 @@ from torch import nn
 
 from vllm.attention import AttentionMetadata, get_attn_backend
 from vllm.config import (DeviceConfig, LoadConfig, LoRAConfig, ModelConfig,
-                         ParallelConfig, SchedulerConfig, AudioLanguageConfig, VisionLanguageConfig)
+                         ParallelConfig, SchedulerConfig, AudioLanguageConfig,
+                         VisionLanguageConfig)
 from vllm.distributed import broadcast_tensor_dict
 from vllm.logger import init_logger
 from vllm.model_executor import SamplingMetadata

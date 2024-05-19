@@ -6,10 +6,16 @@ from typing import List, Optional, Union
 from vllm.config import (CacheConfig, DecodingConfig, DeviceConfig,
                          EngineConfig, LoadConfig, LoRAConfig, ModelConfig,
                          ParallelConfig, SchedulerConfig, SpeculativeConfig,
-                         TokenizerPoolConfig, VisionLanguageConfig, AudioLanguageConfig)
+                         TokenizerPoolConfig, VisionLanguageConfig,
+                         AudioLanguageConfig)
 from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 from vllm.utils import str_to_int_tuple
 
+import transformers
+from vllm.model_executor.models import gazelle
+
+transformers.AutoConfig.register("gazelle", gazelle.GazelleConfig)
+transformers.AutoModel.register(gazelle.GazelleConfig, gazelle.GazelleForConditionalGeneration)
 
 def nullable_str(val: str):
     if not val or val == "None":
@@ -434,6 +440,10 @@ class EngineArgs:
             type=int,
             default=None,
             help=('The image feature size along the context dimension.'))
+        parser.add_argument('--audio-token-id',
+                            type=int,
+                            default=None,
+                            help=('Input id for image token.'))
         parser.add_argument(
             '--scheduler-delay-factor',
             type=float,
@@ -597,7 +607,8 @@ class EngineArgs:
         else:
             vision_language_config = None
         if self.audio_token_id:
-            audio_language_config = AudioLanguageConfig(audio_token_id=self.audio_token_id)
+            audio_language_config = AudioLanguageConfig(
+                audio_token_id=self.audio_token_id)
         else:
             audio_language_config = None
 

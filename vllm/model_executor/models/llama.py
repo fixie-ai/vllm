@@ -300,6 +300,7 @@ class LlamaModel(nn.Module):
 
 
 class LlamaForCausalLM(nn.Module):
+    """
     packed_modules_mapping = {
         "qkv_proj": [
             "q_proj",
@@ -326,6 +327,7 @@ class LlamaForCausalLM(nn.Module):
         "lm_head": "output_embeddings",
     }
     embedding_padding_modules = ["lm_head"]
+    """
 
     def __init__(
         self,

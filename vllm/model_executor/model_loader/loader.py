@@ -64,7 +64,8 @@ def _get_quantization_config(
 
 def _get_model_initialization_kwargs(
         model_class: Type[nn.Module], lora_config: Optional[LoRAConfig],
-        vision_language_config: Optional[VisionLanguageConfig], audio_language_config: Optional[AudioLanguageConfig]
+        vision_language_config: Optional[VisionLanguageConfig],
+        audio_language_config: Optional[AudioLanguageConfig]
 ) -> Dict[str, Any]:
     """Get extra kwargs for model initialization."""
     extra_kwargs = {}
@@ -87,7 +88,7 @@ def _initialize_model(
         model_config: ModelConfig, load_config: LoadConfig,
         lora_config: Optional[LoRAConfig],
         vision_language_config: Optional[VisionLanguageConfig],
-        audio_language_config:  Optional[AudioLanguageConfig]) -> nn.Module:
+        audio_language_config: Optional[AudioLanguageConfig]) -> nn.Module:
     """Initialize a model with the given configurations."""
     model_class = get_model_architecture(model_config)[0]
     quant_config = _get_quantization_config(model_config, load_config)
@@ -95,7 +96,8 @@ def _initialize_model(
     return model_class(config=model_config.hf_config,
                        quant_config=quant_config,
                        **_get_model_initialization_kwargs(
-                           model_class, lora_config, vision_language_config, audio_language_config))
+                           model_class, lora_config, vision_language_config,
+                           audio_language_config))
 
 
 class BaseModelLoader(ABC):
@@ -109,6 +111,7 @@ class BaseModelLoader(ABC):
                    device_config: DeviceConfig,
                    lora_config: Optional[LoRAConfig],
                    vision_language_config: Optional[VisionLanguageConfig],
+                   audio_language_config: Optional[AudioLanguageConfig],
                    parallel_config: ParallelConfig,
                    scheduler_config: SchedulerConfig) -> nn.Module:
         """Load a model with the given configurations."""
@@ -220,7 +223,7 @@ class DefaultModelLoader(BaseModelLoader):
 
     def load_model(self, *, model_config: ModelConfig,
                    device_config: DeviceConfig,
-                   lora_config: Optional[LoRAConfig],                   
+                   lora_config: Optional[LoRAConfig],
                    vision_language_config: Optional[VisionLanguageConfig],
                    audio_language_config: Optional[AudioLanguageConfig],
                    parallel_config: ParallelConfig,
@@ -228,7 +231,8 @@ class DefaultModelLoader(BaseModelLoader):
         with set_default_torch_dtype(model_config.dtype):
             with torch.device(device_config.device):
                 model = _initialize_model(model_config, self.load_config,
-                                          lora_config, vision_language_config, audio_language_config)
+                                          lora_config, vision_language_config,
+                                          audio_language_config)
             model.load_weights(
                 self._get_weights_iterator(model_config.model,
                                            model_config.revision,
@@ -260,12 +264,14 @@ class DummyModelLoader(BaseModelLoader):
                    device_config: DeviceConfig,
                    lora_config: Optional[LoRAConfig],
                    vision_language_config: Optional[VisionLanguageConfig],
+                   audio_language_config: Optional[AudioLanguageConfig],
                    parallel_config: ParallelConfig,
                    scheduler_config: SchedulerConfig) -> nn.Module:
         with set_default_torch_dtype(model_config.dtype):
             with torch.device(device_config.device):
                 model = _initialize_model(model_config, self.load_config,
-                                          lora_config, vision_language_config)
+                                          lora_config, vision_language_config,
+                                          audio_language_config)
             # NOTE(woosuk): For accurate performance evaluation, we assign
             # random values to the weights.
             initialize_dummy_weights(model)
@@ -296,8 +302,8 @@ class TensorizerLoader(BaseModelLoader):
     def _load_model_unserialized(
             self, model_config: ModelConfig, device_config: DeviceConfig,
             lora_config: Optional[LoRAConfig],
-            vision_language_config: Optional[VisionLanguageConfig]
-    ) -> nn.Module:
+            vision_language_config: Optional[VisionLanguageConfig],
+            audio_language_config: Optional[AudioLanguageConfig]) -> nn.Module:
         """Load an unserialized model with tensorizer.
 
         Unserialized here means "not serialized with tensorizer". This
@@ -307,7 +313,8 @@ class TensorizerLoader(BaseModelLoader):
         with set_default_torch_dtype(model_config.dtype):
             with torch.device(device_config.device):
                 model = _initialize_model(model_config, self.load_config,
-                                          lora_config, vision_language_config)
+                                          lora_config, vision_language_config,
+                                          audio_language_config)
 
             model.load_weights(self._get_weights_iterator())
         return model.eval()
@@ -315,8 +322,8 @@ class TensorizerLoader(BaseModelLoader):
     def _load_model_serialized(
             self, model_config: ModelConfig, device_config: DeviceConfig,
             lora_config: Optional[LoRAConfig],
-            vision_language_config: Optional[VisionLanguageConfig]
-    ) -> nn.Module:
+            vision_language_config: Optional[VisionLanguageConfig],
+            audio_language_config: Optional[AudioLanguageConfig]) -> nn.Module:
         """Load a serialized model with tensorizer.
 
         See the examples/tensorize_vllm_model.py example "
@@ -327,7 +334,8 @@ class TensorizerLoader(BaseModelLoader):
                 quant_config = _get_quantization_config(
                     model_config, self.load_config)
                 extra_kwargs = _get_model_initialization_kwargs(
-                    model_class, lora_config, vision_language_config)
+                    model_class, lora_config, vision_language_config,
+                    audio_language_config)
                 extra_kwargs["quant_config"] = quant_config
 
                 tensorizer_config = copy.copy(self.tensorizer_config)
@@ -342,6 +350,7 @@ class TensorizerLoader(BaseModelLoader):
                    device_config: DeviceConfig,
                    lora_config: Optional[LoRAConfig],
                    vision_language_config: Optional[VisionLanguageConfig],
+                   audio_language_config: Optional[AudioLanguageConfig],
                    parallel_config: ParallelConfig,
                    scheduler_config: SchedulerConfig) -> nn.Module:
         self._verify_config(model_config, parallel_config)
@@ -349,10 +358,12 @@ class TensorizerLoader(BaseModelLoader):
         if is_vllm_serialized_tensorizer(self.tensorizer_config):
             return self._load_model_serialized(model_config, device_config,
                                                lora_config,
-                                               vision_language_config)
+                                               vision_language_config,
+                                               audio_language_config)
         return self._load_model_unserialized(model_config, device_config,
                                              lora_config,
-                                             vision_language_config)
+                                             vision_language_config,
+                                             audio_language_config)
 
 
 def get_model_loader(load_config: LoadConfig) -> BaseModelLoader:

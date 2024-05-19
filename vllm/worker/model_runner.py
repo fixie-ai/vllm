@@ -11,7 +11,8 @@ from vllm.attention import (AttentionMetadata, AttentionMetadataPerStage,
                             get_attn_backend)
 from vllm.attention.backends.flashinfer import FlashInferBackend
 from vllm.config import (DeviceConfig, LoadConfig, LoRAConfig, ModelConfig,
-                         ParallelConfig, SchedulerConfig, VisionLanguageConfig, AudioLanguageConfig)
+                         ParallelConfig, SchedulerConfig, VisionLanguageConfig,
+                         AudioLanguageConfig)
 from vllm.distributed import broadcast_tensor_dict, with_pynccl_for_all_reduce
 from vllm.distributed.device_communicators import (custom_all_reduce,
                                                    pynccl_utils)
@@ -871,10 +872,10 @@ class ModelRunner:
                 int(max_num_batched_tokens /
                     self.vision_language_config.image_feature_size))
         elif self.audio_language_config:
-            max_num_seqs = max_num_seqs #min(
-                #max_num_seqs,
-                #int(max_num_batched_tokens /
-                #    self.audio_language_config.audio_feature_size))
+            max_num_seqs = max_num_seqs  #min(
+            #max_num_seqs,
+            #int(max_num_batched_tokens /
+            #    self.audio_language_config.audio_feature_size))
         for group_id in range(max_num_seqs):
             seq_len = (max_num_batched_tokens // max_num_seqs +
                        (group_id < max_num_batched_tokens % max_num_seqs))

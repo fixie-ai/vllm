@@ -9,6 +9,7 @@ from openai.types.chat import (ChatCompletionContentPartParam,
                                ChatCompletionRole)
 
 from vllm.engine.async_llm_engine import AsyncLLMEngine
+from vllm.entrypoints.openai import multi_modal
 from vllm.entrypoints.openai.protocol import (
     ChatCompletionRequest, ChatCompletionResponse,
     ChatCompletionResponseChoice, ChatCompletionResponseStreamChoice,
@@ -17,9 +18,11 @@ from vllm.entrypoints.openai.protocol import (
 from vllm.entrypoints.openai.serving_engine import (LoRAModulePath,
                                                     OpenAIServing)
 from vllm.logger import init_logger
+from vllm.model_executor import sampling_metadata
 from vllm.model_executor.guided_decoding import (
     get_guided_decoding_logits_processor)
 from vllm.outputs import RequestOutput
+from vllm.sequence import MultiModalData
 from vllm.utils import random_uuid
 
 logger = init_logger(__name__)
@@ -52,22 +55,26 @@ class OpenAIServingChat(OpenAIServing):
         role: ChatCompletionRole,
         content: Optional[Union[str,
                                 Iterable[ChatCompletionContentPartParam]]],
-    ) -> Tuple[List[ConversationMessage], List[Awaitable[object]]]:
+    ) -> Tuple[List[ConversationMessage], List[Awaitable[MultiModalData]]]:
+        
         if content is None:
             return [], []
         if isinstance(content, str):
             return [ConversationMessage(role=role, content=content)], []
 
         texts: List[str] = []
+        media: List[Awaitable[MultiModalData]] = []
         for _, part in enumerate(content):
-            if part["type"] == "text":
+            if part["type"] == "text":                
                 text = part["text"]
-
                 texts.append(text)
-            else:
+            elif part["type"] == "image_url":
+                url = part["image_url"]["url"]
+                media.append(multi_modal.load_media(url))
+            else:    
                 raise NotImplementedError(f"Unknown part type: {part['type']}")
 
-        return [ConversationMessage(role=role, content="\n".join(texts))], []
+        return [ConversationMessage(role=role, content="\n".join(texts))], media    
 
     async def create_chat_completion(
         self, request: ChatCompletionRequest, raw_request: Request
@@ -81,25 +88,43 @@ class OpenAIServingChat(OpenAIServing):
 
         NOTE: Currently we do not support the following feature:
             - function_call (Users should implement this by themselves)
-        """
+        """  
         error_check_ret = await self._check_model(request)
         if error_check_ret is not None:
             return error_check_ret
 
         try:
             conversation: List[ConversationMessage] = []
-
+            multi_modal_datas: List[MultiModalData] = []
+            
             for m in request.messages:
-                messages, _ = self._parse_chat_message_content(
+                messages, media = self._parse_chat_message_content(
                     m["role"], m["content"])
-
-                conversation.extend(messages)
-
+                msg = messages[0]
+                if msg["role"] == "system":
+                    msg["role"] = "user"
+                    conversation.append(msg)
+                    conversation.append(ConversationMessage(role="assistant", content="OK."))
+                else:
+                    if conversation and msg["role"] == conversation[-1]["role"]:
+                        conversation.pop()
+                    conversation.append(msg)
+                for data in media:
+                    multi_modal_datas.append(await data)            
+            print("roles", [m["role"] for m in conversation])
             prompt = self.tokenizer.apply_chat_template(
                 conversation=conversation,
                 tokenize=False,
                 add_generation_prompt=request.add_generation_prompt,
             )
+
+            # Fix this hacky stuff
+            
+            multi_modal_data = None
+            if multi_modal_datas:
+                multi_modal_data = multi_modal_datas[-1]
+                prompt = multi_modal.process_prompt(prompt, multi_modal_data)
+            
         except Exception as e:
             logger.error("Error in applying chat template from request: %s", e)
             return self.create_error_response(str(e))
@@ -108,8 +133,10 @@ class OpenAIServingChat(OpenAIServing):
         try:
             # Tokenize/detokenize depending on prompt format (string/token list)
             prompt_ids, prompt_text = self._validate_prompt_and_tokenize(
-                request, prompt=prompt)
+                request, prompt=prompt)         
+            print("prompt_ids", prompt_ids)
             sampling_params = request.to_sampling_params()
+            sampling_params.stop.append("<|eot_id|>")
             lora_request = self._maybe_get_lora(request)
             decoding_config = await self.engine.get_decoding_config()
             guided_decoding_backend = request.guided_decoding_backend \
@@ -127,8 +154,8 @@ class OpenAIServingChat(OpenAIServing):
             return self.create_error_response(str(e))
 
         result_generator = self.engine.generate(prompt_text, sampling_params,
-                                                request_id, prompt_ids,
-                                                lora_request)
+                                                request_id, prompt_ids,                                                
+                                                lora_request, multi_modal_data)
         # Streaming response
         if request.stream:
             return self.chat_completion_stream_generator(

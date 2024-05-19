@@ -3,7 +3,8 @@ from typing import Optional
 from torch import nn
 
 from vllm.config import (DeviceConfig, LoadConfig, LoRAConfig, ModelConfig,
-                         ParallelConfig, SchedulerConfig, VisionLanguageConfig,AudioLanguageConfig)
+                         ParallelConfig, SchedulerConfig, VisionLanguageConfig,
+                         AudioLanguageConfig)
 from vllm.model_executor.model_loader.loader import (BaseModelLoader,
                                                      get_model_loader)
 from vllm.model_executor.model_loader.utils import (

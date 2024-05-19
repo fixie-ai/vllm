@@ -988,6 +988,7 @@ class LoRAConfig:
 class AudioLanguageConfig:
     audio_token_id: int
 
+
 @dataclass
 class VisionLanguageConfig:
     """Configs the input data format and how models should run for
