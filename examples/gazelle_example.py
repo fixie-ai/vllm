@@ -1,12 +1,13 @@
 import argparse
+import math
 import os
-import subprocess
+#import subprocess
 import torchaudio
 from vllm.model_executor.models import gazelle
 import transformers
-import torch
+#import torch
 
-from vllm import LLM
+from vllm import LLM, SamplingParams
 from vllm.sequence import MultiModalData
 
 # The assets are located at `s3://air-example-data-2/vllm_opensource_llava/`.
@@ -23,18 +24,18 @@ def run_gazelle():
         #image_feature_size=576,
         trust_remote_code=True
     )
-
-    prompt = "<|audio|>" * 19 + (
-        "\nUSER: Transcribe this audio.\nASSISTANT:")
-
+    
     # This should be provided by another online or offline component.
     #audio = torch.load("audio/test6.pt")
     audio, sr = torchaudio.load("audio/test6.wav")
     transform = torchaudio.transforms.Resample(sr, 16000)
     audio = transform(audio)
+    audio_num_tokens = math.ceil(audio.shape[1] / 16000 * 6.2375)    
+    prompt = '[INST] Transcribe this audio exactly: ' + '<|audio|>' * audio_num_tokens + ' [/INST]'
     print(f"Loaded audio with len {audio.shape} and dtype {audio.dtype}")
 
-    outputs = llm.generate(prompt,
+    sampling_params = SamplingParams(max_tokens=100)        
+    outputs = llm.generate(prompt, sampling_params=sampling_params,
                            multi_modal_data=MultiModalData(
                                type=MultiModalData.Type.AUDIO, data=audio))
     for o in outputs:

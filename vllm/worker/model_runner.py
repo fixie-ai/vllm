@@ -911,6 +911,8 @@ class ModelRunner:
                 max_num_seqs,
                 int(max_num_batched_tokens / vlm_config.image_feature_size),
             )
+        elif self.audio_language_config:
+            max_num_seqs = max_num_seqs
         for group_id in range(max_num_seqs):
             seq_len = max_num_batched_tokens // max_num_seqs + (
                 group_id < max_num_batched_tokens % max_num_seqs

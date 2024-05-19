@@ -7,14 +7,20 @@ change `vllm/entrypoints/openai/api_server.py` instead.
 """
 
 import argparse
+import base64
+import io
 import json
+import math
 import ssl
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Tuple
+import torch
+import torchaudio
 
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from vllm.sequence import MultiModalData
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.sampling_params import SamplingParams
@@ -25,6 +31,14 @@ TIMEOUT_KEEP_ALIVE = 5  # seconds.
 app = FastAPI()
 engine = None
 
+def make_audio_data(prompt: str, audio: str) -> Tuple[str, MultiModalData]:
+    audio_bytes = base64.b64decode(audio)
+    audio_tensor, sr = torchaudio.load(io.BytesIO(audio_bytes))
+    transform = torchaudio.transforms.Resample(sr, 16000)
+    audio_tensor = transform(audio_tensor).to(torch.float16)
+    audio_num_tokens = math.ceil(audio_tensor.shape[1] / 16000 * 6.2375)
+    prompt = prompt.replace("<|audio|>", "<|audio|>" * audio_num_tokens)
+    return prompt, MultiModalData(type=MultiModalData.Type.AUDIO, data=audio_tensor)
 
 @app.get("/health")
 async def health() -> Response:
@@ -43,12 +57,16 @@ async def generate(request: Request) -> Response:
     """
     request_dict = await request.json()
     prompt = request_dict.pop("prompt")
-    stream = request_dict.pop("stream", False)
-    sampling_params = SamplingParams(**request_dict)
+    stream = request_dict.pop("stream", False)    
+    multi_modal_data = None
+    audio = request_dict.pop("audio", None)
+    if audio:
+        prompt, multi_modal_data = make_audio_data(prompt, audio)
+    sampling_params = SamplingParams(**request_dict)    
     request_id = random_uuid()
 
     assert engine is not None
-    results_generator = engine.generate(prompt, sampling_params, request_id)
+    results_generator = engine.generate(prompt, sampling_params, request_id, multi_modal_data=multi_modal_data)
 
     # Streaming case
     async def stream_results() -> AsyncGenerator[bytes, None]:
@@ -58,7 +76,7 @@ async def generate(request: Request) -> Response:
                 prompt + output.text for output in request_output.outputs
             ]
             ret = {"text": text_outputs}
-            yield (json.dumps(ret) + "\0").encode("utf-8")
+            yield (json.dumps(ret) + "\r\n").encode("utf-8")
 
     if stream:
         return StreamingResponse(stream_results())

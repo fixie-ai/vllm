@@ -3,7 +3,8 @@ from typing import List, Optional, Set, Tuple
 
 from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
                          ModelConfig, ParallelConfig, SchedulerConfig,
-                         SpeculativeConfig, AudioLanguageConfig, VisionLanguageConfig)
+                         SpeculativeConfig, AudioLanguageConfig,
+                         VisionLanguageConfig)
 from vllm.lora.request import LoRARequest
 from vllm.sequence import ExecuteModelRequest, SamplerOutput
 
