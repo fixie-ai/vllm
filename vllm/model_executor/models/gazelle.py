@@ -23,11 +23,12 @@ import torch.utils.checkpoint
 from torch import nn
 from torch.nn import functional as F
 
-from transformers import AutoModel, CONFIG_MAPPING, PretrainedConfig
+from transformers import AutoModel, AutoProcessor, CONFIG_MAPPING, PretrainedConfig
 from transformers import logging
 
 from vllm.attention import AttentionMetadata
-from vllm.config import AudioLanguageConfig
+from vllm.config import AudioLanguageConfig, CacheConfig
+from vllm.entrypoints.openai import multi_modal
 from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig)
@@ -37,6 +38,9 @@ from vllm.model_executor.layers.vocab_parallel_embedding import ParallelLMHead
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import SamplerOutput
 import time
+
+#torch.set_printoptions(threshold=40.0)
+
 
 _KEYS_TO_MODIFY_MAPPING = {
     "language_model.lm_head": "lm_head",
@@ -118,6 +122,7 @@ class GazelleConfig(PretrainedConfig):
         stack_factor=8,
         **kwargs,
     ):
+        #import pdb; pdb.set_trace()
         self.ignore_index = ignore_index
         self.audio_token_index = audio_token_index
         self.vocab_size = vocab_size
@@ -237,27 +242,37 @@ class GazelleForConditionalGeneration(nn.Module):
     def __init__(self,
                  config: GazelleConfig,
                  audio_language_config: AudioLanguageConfig,
+                 cache_config: Optional[CacheConfig] = None,
                  quant_config: Optional["QuantizationConfig"] = None):
         from vllm.model_executor.models.llama import LlamaModel
         super().__init__()
         self.config = config
-
+        #print("config", config)
+        dtype = torch.float32
         self.audio_language_config = audio_language_config
         assert self.audio_language_config
 
+        #config.audio_model_id = config.audio_model_id or config.audio_config._name_or_path
         if config.audio_model_id is not None:
             self.audio_tower = AutoModel.from_pretrained(config.audio_model_id)
         else:
             self.audio_tower = AutoModel.from_config(config.audio_config)
-        self.audio_tower = self.audio_tower.to(torch.float16)
-        torch.compile(self.audio_tower)
-        self.audio_tower.eval()
+        #self.audio_tower = self.audio_tower.to(torch.bfloat16)
+        #print("audio tower", self.audio_tower)
+        #torch.compile(self.audio_tower)
+        #self.audio_tower.eval()
 
-        self.multi_modal_projector = GazelleProjector(config).to(torch.bfloat16)
-        torch.compile(self.multi_modal_projector)
+       #self.audio_processor = AutoProcessor.from_pretrained(
+       #     config.audio_model_id
+       #     or config.audio_config._name_or_path
+       #     or "facebook/wav2vec2-base-960h"
+       # )
+
+        self.multi_modal_projector = GazelleProjector(config)
+        #torch.compile(self.multi_modal_projector)
         self.quant_config = quant_config
 
-        self.language_model = LlamaModel(config.text_config, quant_config)
+        self.language_model = LlamaModel(config.text_config, cache_config, quant_config)
         self.unpadded_vocab_size = config.text_config.vocab_size
         self.lm_head = ParallelLMHead(
             self.unpadded_vocab_size,
@@ -268,6 +283,9 @@ class GazelleForConditionalGeneration(nn.Module):
                                                 config.text_config.vocab_size,
                                                 logit_scale)
         self.sampler = Sampler()
+
+        self.audio_tower.to(dtype).to("cuda")
+        self.multi_modal_projector.to(dtype).to("cuda")
 
     """
     def resize_token_embeddings(
@@ -326,14 +344,16 @@ class GazelleForConditionalGeneration(nn.Module):
             image_input: A batch of image inputs.
                 For PIXEL_VALUES, expecting [1, 3, 336, 336].
                 For IMAGE_FEATURES, expecting [1, 576, 1024].
-        """       
+        """               
         t1 = time.perf_counter()
         t2 = None
-        t3 = None    
-        if audio_input is not None:            
+        t3 = None            
+        if audio_input is not None:           
+            #import pdb; pdb.set_trace()
+            audio_input = audio_input.to(self.audio_tower.dtype)
             audio_token_count = torch.sum(input_ids == self.audio_language_config.audio_token_id)
-            logger.info(f"input_ids {input_ids}")        
-            logger.info(f"audio_input {audio_input.shape if audio_input is not None else None} dtype {audio_input.dtype}")
+            logger.info(f"audio_input shape {audio_input.shape if audio_input is not None else None} dtype {audio_input.dtype}")
+            logger.info(f"audio_input {audio_input}")
             #if list(audio_input.shape[1:]) != [audio_token_count, 4096]:
             #    raise ValueError(
             #        f"The expected image tensor shape is batch dimension "
@@ -346,21 +366,32 @@ class GazelleForConditionalGeneration(nn.Module):
             
             inputs_embeds = self.language_model.get_input_embeddings(input_ids)
             if self.audio_tower is not None:
-                #audio_input = audio_input.to(torch.bfloat16)
+
+
+
+                audio_input = audio_input.to(self.audio_tower.dtype)
                 audio_features = self.audio_tower(audio_input).last_hidden_state
-                print("audio features", audio_features[:5])
+                print("audio tower output shape", audio_features.shape)
+                print("audio tower output", audio_features)
                 t2 = time.perf_counter()
-                audio_features = audio_features.to(torch.bfloat16)              
+                audio_features = audio_features.to(self.audio_tower.dtype)              
                 #if audio_features.shape[1] != audio_token_count:
                 #    raise ValueError(
                 #        f"The number of audio tokens in the prompt ({audio_token_count}) "
                 #        f"does not match the number of audio tokens in the audio input "
                 #        f"({audio_features.shape[1]})."
-                #    )  
+                #    ) 
+                #logger.info(f"kv_caches {kv_caches}")
+                
+                #logger.info(f"attn_metadata {attn_metadata}")
+                # zero the kv cache tensors
+                #for kv_cache in kv_caches:
+                    #kv_cache.zero_()
             else:
                 audio_features = audio_input            
-            audio_embeddings = self.multi_modal_projector(audio_features).to(inputs_embeds.dtype)                
-            print("audio embeddings", audio_embeddings[:5])
+            audio_embeddings = self.multi_modal_projector(audio_features).to(inputs_embeds.dtype) 
+            print("input_embeds dtype", inputs_embeds.dtype)               
+            print("audio embeddings", audio_embeddings)
             t3 = time.perf_counter()
             _merge_audio_embeddings(input_ids, inputs_embeds, audio_embeddings,
                                     self.audio_language_config.audio_token_id)  
@@ -368,6 +399,7 @@ class GazelleForConditionalGeneration(nn.Module):
         else:
             inputs_embeds = None
 
+        
         hidden_states = self.language_model(input_ids=input_ids,
                                             positions=positions,
                                             kv_caches=kv_caches,
@@ -384,6 +416,7 @@ class GazelleForConditionalGeneration(nn.Module):
                        sampling_metadata: SamplingMetadata) -> torch.Tensor:
         logits = self.logits_processor(self.lm_head.weight, hidden_states,
                                        sampling_metadata)
+        #print("logits", logits)
         return logits
 
     def sample(
@@ -435,6 +468,15 @@ class GazelleForConditionalGeneration(nn.Module):
                 weight_loader = getattr(param, "weight_loader",
                                         default_weight_loader)
                 weight_loader(param, loaded_weight)
+                #print(name)#param)#, loaded_weight)
+
+        #from safetensors.torch import load_file
+        #m1 = load_file('/home/juberti/.cache/huggingface/hub/models--tincans-ai--gazelle-v0.2/snapshots/5b422d19f4486875fe19e5110f7ea21010c11b0c/model-00001-of-00003.safetensors')
+        #m2 = load_file('/home/juberti/.cache/huggingface/hub/models--tincans-ai--gazelle-v0.2/snapshots/5b422d19f4486875fe19e5110f7ea21010c11b0c/model-00002-of-00003.safetensors')
+        #m3 = load_file('/home/juberti/.cache/huggingface/hub/models--tincans-ai--gazelle-v0.2/snapshots/5b422d19f4486875fe19e5110f7ea21010c11b0c/model-00003-of-00003.safetensors')
+        #dd = {**m1, **m2, **m3}
+        #print("AUDIO WEIGHTS", [k for k, v in self.named_parameters() if "audio_tower" in k])
+        #print("COMPARING WEIGHTS", [k for k, v in self.named_parameters() if "audio_tower" in k and not torch.allclose(v.bfloat16().cpu(), dd[k])])
 
 """
 
