@@ -1,16 +1,17 @@
-import asyncio
 import codecs
 import time
-from typing import (AsyncGenerator, AsyncIterator, Awaitable, Iterable, List,
-                    Optional, Tuple, TypedDict, Union, final)
+from dataclasses import dataclass
+from typing import (AsyncGenerator, AsyncIterator, Iterable, List, Optional,
+                    TypedDict, Union, cast, final)
 
 from fastapi import Request
-from openai.types.chat import (ChatCompletionContentPartParam,
-                               ChatCompletionRole)
+from openai.types.chat import ChatCompletionContentPartTextParam
 
+from vllm.config import ModelConfig
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.entrypoints.openai import multi_modal
 from vllm.entrypoints.openai.protocol import (
+    ChatCompletionContentPartParam, ChatCompletionMessageParam,
     ChatCompletionRequest, ChatCompletionResponse,
     ChatCompletionResponseChoice, ChatCompletionResponseStreamChoice,
     ChatCompletionStreamResponse, ChatMessage, DeltaMessage, ErrorResponse,
@@ -33,51 +34,102 @@ class ConversationMessage(TypedDict):
     role: str
     content: str
 
+from typing import Awaitable
+@dataclass(frozen=True)
+class ChatMessageParseResult:
+    messages: List[ConversationMessage]
+    multi_modal: List[Awaitable[MultiModalData]]
+
 
 class OpenAIServingChat(OpenAIServing):
 
     def __init__(self,
                  engine: AsyncLLMEngine,
+                 model_config: ModelConfig,
                  served_model_names: List[str],
                  response_role: str,
                  lora_modules: Optional[List[LoRAModulePath]] = None,
                  chat_template: Optional[str] = None):
         super().__init__(engine=engine,
+                         model_config=model_config,
                          served_model_names=served_model_names,
-                         lora_modules=lora_modules,
-                         await_post_init=self._load_chat_template(
-                             chat_template=chat_template))
+                         lora_modules=lora_modules)
 
         self.response_role = response_role
+        self._load_chat_template(chat_template)
+         
+    def _load_chat_template(self, chat_template: Optional[str]):
+        tokenizer = self.tokenizer
+
+        if chat_template is not None:
+            try:
+                with open(chat_template, "r") as f:
+                    tokenizer.chat_template = f.read()
+            except OSError as e:
+                JINJA_CHARS = "{}\n"
+                if not any(c in chat_template for c in JINJA_CHARS):
+                    msg = (f"The supplied chat template ({chat_template}) "
+                           f"looks like a file path, but it failed to be "
+                           f"opened. Reason: {e}")
+                    raise ValueError(msg) from e
+
+                # If opening a file fails, set chat template to be args to
+                # ensure we decode so our escape are interpreted correctly
+                tokenizer.chat_template = codecs.decode(
+                    chat_template, "unicode_escape")
+
+            logger.info("Using supplied chat template:\n%s",
+                        tokenizer.chat_template)
+        elif tokenizer.chat_template is not None:
+            logger.info("Using default chat template:\n%s",
+                        tokenizer.chat_template)
+        else:
+            logger.warning(
+                "No chat template provided. Chat API will not work.")
+
+    def _parse_chat_message_content_parts(
+        self,
+        role: str,
+        parts: Iterable[ChatCompletionContentPartParam],        
+    ) -> ChatMessageParseResult:
+        texts: List[str] = []
+        media: List[Awaitable[MultiModalData]] = []
+        for _, part in enumerate(parts):
+            part_type = part["type"]
+            if part_type == "text":
+                text = cast(ChatCompletionContentPartTextParam, part)["text"].replace("<|audio|>", "")
+                if text:
+                    texts.append(text)
+            elif part_type == "image_url":
+                texts.append("<|audio|>")
+                url = part["image_url"]["url"]
+                media.append(multi_modal.load_media(url))                
+            else:
+                raise NotImplementedError(f"Unknown part type: {part_type}")
+
+        messages = [ConversationMessage(role=role, content="".join(texts))] # \n
+
+        return ChatMessageParseResult(messages=messages, multi_modal=media)
 
     def _parse_chat_message_content(
         self,
-        role: ChatCompletionRole,
-        content: Optional[Union[str,
-                                Iterable[ChatCompletionContentPartParam]]],
-    ) -> Tuple[List[ConversationMessage], List[Awaitable[MultiModalData]]]:
-        
+        message: ChatCompletionMessageParam,
+    ) -> ChatMessageParseResult:
+        role = message["role"]
+        content = message.get("content")
+
         if content is None:
-            return [], []
+            return ChatMessageParseResult(messages=[], multi_modal=[])
         if isinstance(content, str):
-            return [ConversationMessage(role=role, content=content)], []
+            messages = [ConversationMessage(role=role, content=content)]
+            return ChatMessageParseResult(messages=messages, multi_modal=[])
 
-        texts: List[str] = []
-        media: List[Awaitable[MultiModalData]] = []
-        for _, part in enumerate(content):
-            if part["type"] == "text":                
-                text = part["text"]
-                texts.append(text)
-            elif part["type"] == "image_url":
-                url = part["image_url"]["url"]
-                media.append(multi_modal.load_media(url))
-            else:    
-                raise NotImplementedError(f"Unknown part type: {part['type']}")
-
-        return [ConversationMessage(role=role, content="\n".join(texts))], media    
+        return self._parse_chat_message_content_parts(role, content)
 
     async def create_chat_completion(
-        self, request: ChatCompletionRequest, raw_request: Request
+        self,
+        request: ChatCompletionRequest,
+        raw_request: Optional[Request] = None
     ) -> Union[ErrorResponse, AsyncGenerator[str, None],
                ChatCompletionResponse]:
         """Completion API similar to OpenAI's API.
@@ -98,8 +150,9 @@ class OpenAIServingChat(OpenAIServing):
             multi_modal_datas: List[MultiModalData] = []
             
             for m in request.messages:
-                messages, media = self._parse_chat_message_content(
-                    m["role"], m["content"])
+                result = self._parse_chat_message_content(m)                    
+                messages = result.messages
+                media = result.multi_modal
                 msg = messages[0]
                 if msg["role"] == "system":
                     msg["role"] = "user"
@@ -133,9 +186,10 @@ class OpenAIServingChat(OpenAIServing):
         try:
             # Tokenize/detokenize depending on prompt format (string/token list)
             prompt_ids, prompt_text = self._validate_prompt_and_tokenize(
-                request, prompt=prompt)         
-            print("prompt_ids", prompt_ids)
+                request, prompt=prompt, add_special_tokens=False)
             sampling_params = request.to_sampling_params()
+            if sampling_params.temperature == 0.7:
+                sampling_params.temperature = 0.2
             sampling_params.stop.append("<|eot_id|>")
             lora_request = self._maybe_get_lora(request)
             decoding_config = await self.engine.get_decoding_config()
@@ -153,6 +207,7 @@ class OpenAIServingChat(OpenAIServing):
         except ValueError as e:
             return self.create_error_response(str(e))
 
+        logger.info(f"Sampling params: {sampling_params}")
         result_generator = self.engine.generate(prompt_text, sampling_params,
                                                 request_id, prompt_ids,                                                
                                                 lora_request, multi_modal_data)
@@ -316,7 +371,7 @@ class OpenAIServingChat(OpenAIServing):
         yield "data: [DONE]\n\n"
 
     async def chat_completion_full_generator(
-        self, request: ChatCompletionRequest, raw_request: Request,
+        self, request: ChatCompletionRequest, raw_request: Optional[Request],
         result_generator: AsyncIterator[RequestOutput], request_id: str,
         conversation: List[ConversationMessage]
     ) -> Union[ErrorResponse, ChatCompletionResponse]:
@@ -326,7 +381,7 @@ class OpenAIServingChat(OpenAIServing):
         final_res: Optional[RequestOutput] = None
 
         async for res in result_generator:
-            if await raw_request.is_disconnected():
+            if raw_request is not None and await raw_request.is_disconnected():
                 # Abort the request if the client disconnects.
                 await self.engine.abort(request_id)
                 return self.create_error_response("Client disconnected")
@@ -385,35 +440,3 @@ class OpenAIServingChat(OpenAIServing):
         )
 
         return response
-
-    async def _load_chat_template(self, chat_template: Optional[str]):
-        while self.tokenizer is None:
-            # Give the parent class time to load the tokenizer
-            await asyncio.sleep(0.1)
-        tokenizer = self.tokenizer
-
-        if chat_template is not None:
-            try:
-                with open(chat_template, "r") as f:
-                    tokenizer.chat_template = f.read()
-            except OSError as e:
-                JINJA_CHARS = "{}\n"
-                if not any(c in chat_template for c in JINJA_CHARS):
-                    msg = (f"The supplied chat template ({chat_template}) "
-                           f"looks like a file path, but it failed to be "
-                           f"opened. Reason: {e}")
-                    raise ValueError(msg) from e
-
-                # If opening a file fails, set chat template to be args to
-                # ensure we decode so our escape are interpreted correctly
-                tokenizer.chat_template = codecs.decode(
-                    chat_template, "unicode_escape")
-
-            logger.info("Using supplied chat template:\n%s",
-                        tokenizer.chat_template)
-        elif tokenizer.chat_template is not None:
-            logger.info("Using default chat template:\n%s",
-                        tokenizer.chat_template)
-        else:
-            logger.warning(
-                "No chat template provided. Chat API will not work.")

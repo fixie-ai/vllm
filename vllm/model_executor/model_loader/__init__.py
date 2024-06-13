@@ -2,21 +2,22 @@ from typing import Optional
 
 from torch import nn
 
-from vllm.config import (DeviceConfig, LoadConfig, LoRAConfig, ModelConfig,
-                         ParallelConfig, SchedulerConfig, VisionLanguageConfig,
-                         AudioLanguageConfig)
+from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
+                         ModelConfig, ParallelConfig, SchedulerConfig,
+                         VisionLanguageConfig, AudioLanguageConfig)
 from vllm.model_executor.model_loader.loader import (BaseModelLoader,
                                                      get_model_loader)
 from vllm.model_executor.model_loader.utils import (
     get_architecture_class_name, get_model_architecture)
 
 
-def get_model(
-        *, model_config: ModelConfig, load_config: LoadConfig,
-        device_config: DeviceConfig, parallel_config: ParallelConfig,
-        scheduler_config: SchedulerConfig, lora_config: Optional[LoRAConfig],
-        vision_language_config: Optional[VisionLanguageConfig],
-        audio_language_config: Optional[AudioLanguageConfig]) -> nn.Module:
+def get_model(*, model_config: ModelConfig, load_config: LoadConfig,
+              device_config: DeviceConfig, parallel_config: ParallelConfig,
+              scheduler_config: SchedulerConfig,
+              lora_config: Optional[LoRAConfig],
+              vision_language_config: Optional[VisionLanguageConfig],
+              audio_language_config: Optional[AudioLanguageConfig],
+              cache_config: CacheConfig) -> nn.Module:
     loader = get_model_loader(load_config)
     return loader.load_model(model_config=model_config,
                              device_config=device_config,
@@ -24,7 +25,8 @@ def get_model(
                              vision_language_config=vision_language_config,
                              audio_language_config=audio_language_config,
                              parallel_config=parallel_config,
-                             scheduler_config=scheduler_config)
+                             scheduler_config=scheduler_config,
+                             cache_config=cache_config)
 
 
 __all__ = [
