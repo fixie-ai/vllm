@@ -21,11 +21,7 @@ _GENERATION_MODELS = {
     "DbrxForCausalLM": ("dbrx", "DbrxForCausalLM"),
     "DeciLMForCausalLM": ("decilm", "DeciLMForCausalLM"),
     "DeepseekForCausalLM": ("deepseek", "DeepseekForCausalLM"),
-    "FalconForCausalLM": ("falcon", "FalconForCausalLM"),
-    "GazelleForConditionalGeneration":
-    ("gazelle", "GazelleForConditionalGeneration"),
-    "PartiallyFrozenGazelleForConditionalGeneration":
-    ("gazelle", "GazelleForConditionalGeneration"),
+    "FalconForCausalLM": ("falcon", "FalconForCausalLM"),    
     "GemmaForCausalLM": ("gemma", "GemmaForCausalLM"),
     "GPT2LMHeadModel": ("gpt2", "GPT2LMHeadModel"),
     "GPTBigCodeForCausalLM": ("gpt_bigcode", "GPTBigCodeForCausalLM"),
@@ -60,6 +56,7 @@ _GENERATION_MODELS = {
     "Starcoder2ForCausalLM": ("starcoder2", "Starcoder2ForCausalLM"),
     "ArcticForCausalLM": ("arctic", "ArcticForCausalLM"),
     "XverseForCausalLM": ("xverse", "XverseForCausalLM"),
+    "UltravoxModel": ("ultravox", "UltravoxModel"),
 }
 
 _EMBEDDING_MODELS = {

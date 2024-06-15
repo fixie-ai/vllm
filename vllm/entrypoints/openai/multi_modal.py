@@ -47,24 +47,17 @@ def _make_audio_object(audio: bytes) -> MultiModalData:
     global audio_processor
     if not audio_processor:
         audio_processor = transformers.AutoProcessor.from_pretrained(
-        "facebook/wav2vec2-base-960h"
+        "openai/whisper-small"
     )
-    #audio_tensor, sr = torchaudio.load(io.BytesIO(audio))
-    #transform = torchaudio.transforms.Resample(sr, SAMPLE_RATE)
-    audio = librosa.load(io.BytesIO(audio), sr=SAMPLE_RATE)[0]
-    audio = np.expand_dims(audio, 0)
+    audio, _ = librosa.load(io.BytesIO(audio), sr=SAMPLE_RATE)
     audio_tensor = torch.from_numpy(audio)
-    print("audio tensor", audio_tensor)
-    x = audio_processor(audio_tensor, sampling_rate=SAMPLE_RATE, padding="longest", return_tensors="pt").to(torch.bfloat16)
-    audio_processed = x.get("input_features") or x.get("input_values")
-    print("audio processed", audio_processed)
-    audio_processed = audio_processed.squeeze(0)
-    
-    #audio_tensor = transform(audio_tensor).to(torch.float16) 
-    return MultiModalData(type=MultiModalData.Type.AUDIO, data=audio_processed)
+    processed = audio_processor(audio_tensor, sampling_rate=SAMPLE_RATE, padding="longest", return_tensors="pt")
+    audio_features = processed["input_features"]
+
+    return MultiModalData(type=MultiModalData.Type.AUDIO, data=audio_features)
                                   
 def process_prompt(prompt: str, data: MultiModalData) -> str:
     assert(data.type == MultiModalData.Type.AUDIO)
-    audio_num_tokens = math.ceil(data.data.shape[1] / SAMPLE_RATE * 6.2375)
-    return prompt.replace("<|audio|>", "<|audio|>" * audio_num_tokens)
+    audio_num_tokens = math.ceil(data.data.shape[2] / 16)    
+    return prompt.replace("<|audio|>", "<|reserved_special_token_0|>" * audio_num_tokens)
     

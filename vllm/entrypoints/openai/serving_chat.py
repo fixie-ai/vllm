@@ -153,15 +153,7 @@ class OpenAIServingChat(OpenAIServing):
                 result = self._parse_chat_message_content(m)                    
                 messages = result.messages
                 media = result.multi_modal
-                msg = messages[0]
-                if msg["role"] == "system":
-                    msg["role"] = "user"
-                    conversation.append(msg)
-                    conversation.append(ConversationMessage(role="assistant", content="OK."))
-                else:
-                    if conversation and msg["role"] == conversation[-1]["role"]:
-                        conversation.pop()
-                    conversation.append(msg)
+                conversation.append(messages[0])
                 for data in media:
                     multi_modal_datas.append(await data)            
             print("roles", [m["role"] for m in conversation])
@@ -188,8 +180,7 @@ class OpenAIServingChat(OpenAIServing):
             prompt_ids, prompt_text = self._validate_prompt_and_tokenize(
                 request, prompt=prompt, add_special_tokens=False)
             sampling_params = request.to_sampling_params()
-            if sampling_params.temperature == 0.7:
-                sampling_params.temperature = 0.2
+    
             sampling_params.stop.append("<|eot_id|>")
             lora_request = self._maybe_get_lora(request)
             decoding_config = await self.engine.get_decoding_config()
