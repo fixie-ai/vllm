@@ -215,7 +215,18 @@ class OpenAIServingChat(OpenAIServing):
 
                 conversation.extend(chat_parsed_result.messages)
                 image_futures.extend(chat_parsed_result.image_futures)
-
+"""
+            multi_modal_datas: List[MultiModalData] = []
+            
+            for m in request.messages:
+                result = self._parse_chat_message_content(m)                    
+                messages = result.messages
+                media = result.multi_modal
+                conversation.append(messages[0])
+                for data in media:
+                    multi_modal_datas.append(await data)            
+            print("roles", [m["role"] for m in conversation])
+"""
             prompt = self.tokenizer.apply_chat_template(
                 conversation=conversation,
                 tokenize=False,
@@ -244,6 +255,8 @@ class OpenAIServingChat(OpenAIServing):
                 prompt=prompt,
                 add_special_tokens=request.add_special_tokens)
             sampling_params = request.to_sampling_params()
+    
+            #sampling_params.stop.append("<|eot_id|>")
             lora_request = self._maybe_get_lora(request)
             decoding_config = await self.engine.get_decoding_config()
             guided_decoding_backend = request.guided_decoding_backend \

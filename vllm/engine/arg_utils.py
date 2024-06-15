@@ -24,12 +24,10 @@ from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 from vllm.utils import str_to_int_tuple
 
 import transformers
-from vllm.model_executor.models import gazelle
+from vllm.model_executor.models import ultravox
 
-transformers.AutoConfig.register("gazelle", gazelle.GazelleConfig)
-transformers.AutoModel.register(
-    gazelle.GazelleConfig, gazelle.GazelleForConditionalGeneration
-)
+transformers.AutoConfig.register("ultravox", ultravox.UltravoxConfig)
+transformers.AutoModel.register(ultravox.UltravoxConfig, ultravox.UltravoxModel)
 
 
 def nullable_str(val: str):
