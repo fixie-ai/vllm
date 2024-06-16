@@ -7,23 +7,47 @@ import torch
 
 from vllm import _custom_ops as ops
 from vllm.model_executor.layers.quantization.gptq_marlin import (
+<<<<<<< HEAD
     GPTQ_MARLIN_SUPPORTED_GROUP_SIZES, GPTQ_MARLIN_SUPPORTED_NUM_BITS)
 from vllm.model_executor.layers.quantization.utils.marlin_utils import (
     MarlinWorkspace, is_marlin_supported, marlin_quantize, marlin_weights)
+=======
+    GPTQ_MARLIN_MAX_PARALLEL, GPTQ_MARLIN_MIN_THREAD_N,
+    GPTQ_MARLIN_SUPPORTED_GROUP_SIZES, GPTQ_MARLIN_SUPPORTED_NUM_BITS)
+from vllm.model_executor.layers.quantization.gptq_marlin_24 import (
+    GPTQ_MARLIN_24_MAX_PARALLEL, GPTQ_MARLIN_24_MIN_THREAD_N,
+    GPTQ_MARLIN_24_SUPPORTED_GROUP_SIZES, GPTQ_MARLIN_24_SUPPORTED_NUM_BITS)
+from vllm.model_executor.layers.quantization.utils.marlin_perms import (
+    marlin_perm)
+from vllm.model_executor.layers.quantization.utils.marlin_utils import (
+    MarlinWorkspace, compute_max_diff, is_marlin_supported, marlin_24_quantize,
+    marlin_quantize, marlin_weights)
+>>>>>>> fixie-ai/vllm/main
 from vllm.model_executor.layers.quantization.utils.quant_utils import (
     gptq_pack, quantize_weights, sort_weights)
 
 ACT_ORDER_OPTS = [False, True]
 K_FULL_OPTS = [False, True]
 
+<<<<<<< HEAD
 K_CHUNKS = [128, 256]
 N_CHUNKS = [64, 128, 256]
+=======
+MARLIN_K_CHUNKS = [128]
+MARLIN_N_CHUNKS = [64, 128, 256]
+
+MARLIN_24_K_CHUNKS = [128]
+MARLIN_24_N_CHUNKS = [512]
+>>>>>>> fixie-ai/vllm/main
 
 MNK_FACTORS = [
     (1, 1, 1),
     (1, 4, 8),
     (1, 7, 5),
+<<<<<<< HEAD
     (1, 7 * 4, 5 * 1),
+=======
+>>>>>>> fixie-ai/vllm/main
     (13, 17, 67),
     (26, 37, 13),
     (67, 13, 11),
@@ -31,14 +55,23 @@ MNK_FACTORS = [
 
 
 def rand_data(shape):
+<<<<<<< HEAD
     data = torch.rand(shape).to(torch.half).cuda()
     return data
+=======
+    return torch.randn(shape, dtype=torch.half, device="cuda")
+>>>>>>> fixie-ai/vllm/main
 
 
 @pytest.mark.skipif(not is_marlin_supported(),
                     reason="Marlin is not supported on this GPU type.")
+<<<<<<< HEAD
 @pytest.mark.parametrize("k_chunk", K_CHUNKS)
 @pytest.mark.parametrize("n_chunk", N_CHUNKS)
+=======
+@pytest.mark.parametrize("k_chunk", MARLIN_K_CHUNKS)
+@pytest.mark.parametrize("n_chunk", MARLIN_N_CHUNKS)
+>>>>>>> fixie-ai/vllm/main
 @pytest.mark.parametrize("num_bits", GPTQ_MARLIN_SUPPORTED_NUM_BITS)
 @pytest.mark.parametrize("group_size", GPTQ_MARLIN_SUPPORTED_GROUP_SIZES)
 @pytest.mark.parametrize("act_order", ACT_ORDER_OPTS)
@@ -82,7 +115,12 @@ def test_marlin_repack(k_chunk, n_chunk, num_bits, group_size, act_order,
         q_w, g_idx, sort_indices = sort_weights(q_w, g_idx)
 
     # Pack to Marlin format
+<<<<<<< HEAD
     marlin_q_w_1 = marlin_weights(q_w, size_k, size_n, num_bits)
+=======
+    marlin_q_w_1 = marlin_weights(q_w, size_k, size_n, num_bits,
+                                  marlin_perm[num_bits])
+>>>>>>> fixie-ai/vllm/main
 
     # Run Marlin repack GPU kernel
     marlin_q_w_2 = ops.gptq_marlin_repack(
@@ -99,8 +137,13 @@ def test_marlin_repack(k_chunk, n_chunk, num_bits, group_size, act_order,
 
 @pytest.mark.skipif(not is_marlin_supported(),
                     reason="Marlin is not supported on this GPU type.")
+<<<<<<< HEAD
 @pytest.mark.parametrize("k_chunk", K_CHUNKS)
 @pytest.mark.parametrize("n_chunk", N_CHUNKS)
+=======
+@pytest.mark.parametrize("k_chunk", MARLIN_K_CHUNKS)
+@pytest.mark.parametrize("n_chunk", MARLIN_N_CHUNKS)
+>>>>>>> fixie-ai/vllm/main
 @pytest.mark.parametrize("num_bits", GPTQ_MARLIN_SUPPORTED_NUM_BITS)
 @pytest.mark.parametrize("group_size", GPTQ_MARLIN_SUPPORTED_GROUP_SIZES)
 @pytest.mark.parametrize("mnk_factors", MNK_FACTORS)
@@ -136,7 +179,12 @@ def test_marlin_gemm(
     w_ref, marlin_q_w, marlin_s, g_idx, sort_indices, _ = marlin_quantize(
         b_weight, num_bits, group_size, act_order)
 
+<<<<<<< HEAD
     workspace = MarlinWorkspace(size_n)
+=======
+    workspace = MarlinWorkspace(size_n, GPTQ_MARLIN_MIN_THREAD_N,
+                                GPTQ_MARLIN_MAX_PARALLEL)
+>>>>>>> fixie-ai/vllm/main
 
     output = ops.gptq_marlin_gemm(
         a_input,
@@ -155,4 +203,59 @@ def test_marlin_gemm(
 
     torch.cuda.synchronize()
 
+<<<<<<< HEAD
     assert torch.allclose(output, output_ref, rtol=1e-2)
+=======
+    max_diff = compute_max_diff(output, output_ref)
+    print("max_diff = {}".format(max_diff))
+
+    assert max_diff < 0.04
+
+
+@pytest.mark.skipif(not is_marlin_supported(),
+                    reason="Marlin is not supported on this GPU type.")
+@pytest.mark.parametrize("k_chunk", MARLIN_24_K_CHUNKS)
+@pytest.mark.parametrize("n_chunk", MARLIN_24_N_CHUNKS)
+@pytest.mark.parametrize("num_bits", GPTQ_MARLIN_24_SUPPORTED_NUM_BITS)
+@pytest.mark.parametrize("group_size", GPTQ_MARLIN_24_SUPPORTED_GROUP_SIZES)
+@pytest.mark.parametrize("mnk_factors", MNK_FACTORS)
+def test_marlin_24_gemm(k_chunk, n_chunk, num_bits, group_size, mnk_factors):
+    m_factor, n_factor, k_factor = mnk_factors
+
+    size_m = m_factor
+    size_k = k_chunk * k_factor
+    size_n = n_chunk * n_factor
+
+    print(f"MNK = {size_m} {size_n} {size_k}")
+    print(f"groupsize = {group_size}")
+
+    a_input = rand_data((size_m, size_k))
+    b_weight = rand_data((size_k, size_n))
+
+    (w_24_ref, marlin_24_q_w_comp, marlin_24_meta,
+     marlin_24_s) = marlin_24_quantize(b_weight, num_bits, group_size)
+
+    workspace_24 = MarlinWorkspace(size_n, GPTQ_MARLIN_24_MIN_THREAD_N,
+                                   GPTQ_MARLIN_24_MAX_PARALLEL)
+
+    output_ref = torch.matmul(a_input, w_24_ref)
+
+    output = ops.gptq_marlin_24_gemm(
+        a_input,
+        marlin_24_q_w_comp,
+        marlin_24_meta,
+        marlin_24_s,
+        workspace_24.scratch,
+        num_bits,
+        a_input.shape[0],
+        b_weight.shape[1],
+        a_input.shape[1],
+    )
+
+    torch.cuda.synchronize()
+
+    max_diff = compute_max_diff(output, output_ref)
+    print("max_diff = {}".format(max_diff))
+
+    assert max_diff < 0.04
+>>>>>>> fixie-ai/vllm/main

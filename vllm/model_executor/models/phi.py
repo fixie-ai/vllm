@@ -42,7 +42,11 @@ from torch import nn
 from transformers import PretrainedConfig
 
 from vllm.attention import Attention, AttentionMetadata
+<<<<<<< HEAD
 from vllm.config import CacheConfig
+=======
+from vllm.config import CacheConfig, LoRAConfig
+>>>>>>> fixie-ai/vllm/main
 from vllm.distributed import get_tensor_model_parallel_world_size
 from vllm.model_executor.layers.activation import get_act_fn
 from vllm.model_executor.layers.linear import (ColumnParallelLinear,
@@ -110,7 +114,12 @@ class PhiAttention(nn.Module):
         self.attn = Attention(self.num_heads,
                               self.head_size,
                               scaling,
+<<<<<<< HEAD
                               cache_config=cache_config)
+=======
+                              cache_config=cache_config,
+                              quant_config=quant_config)
+>>>>>>> fixie-ai/vllm/main
 
     def forward(
         self,
@@ -229,11 +238,40 @@ class PhiModel(nn.Module):
 
 
 class PhiForCausalLM(nn.Module):
+<<<<<<< HEAD
 
     def __init__(self,
                  config: PretrainedConfig,
                  cache_config: Optional[CacheConfig] = None,
                  quant_config: Optional[QuantizationConfig] = None):
+=======
+    packed_modules_mapping = {
+        "qkv_proj": [
+            "q_proj",
+            "k_proj",
+            "v_proj",
+        ]
+    }
+
+    # LoRA specific attributes
+    supported_lora_modules = [
+        "qkv_proj",
+        "dense",
+        "fc1",
+        "fc2",
+    ]
+    embedding_modules = {}
+    embedding_padding_modules = []
+
+    def __init__(
+        self,
+        config: PretrainedConfig,
+        cache_config: Optional[CacheConfig] = None,
+        quant_config: Optional[QuantizationConfig] = None,
+        lora_config: Optional[LoRAConfig] = None,
+    ):
+        del lora_config  # Unused.
+>>>>>>> fixie-ai/vllm/main
         super().__init__()
         self.config = config
         self.quant_config = quant_config

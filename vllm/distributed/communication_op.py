@@ -1,11 +1,16 @@
+<<<<<<< HEAD
 from collections import namedtuple
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
+=======
+from typing import Any, Dict, Optional, Union
+>>>>>>> fixie-ai/vllm/main
 
 import torch
-from torch.distributed import ProcessGroup
+import torch.distributed
 
+<<<<<<< HEAD
 from .parallel_state import (get_cpu_world_group,
                              get_tensor_model_parallel_group,
                              get_tensor_model_parallel_rank,
@@ -92,103 +97,30 @@ def tensor_model_parallel_all_reduce(input_: torch.Tensor) -> torch.Tensor:
         torch.distributed.all_reduce(input_,
                                      group=get_tensor_model_parallel_group())
     return input_
+=======
+from .parallel_state import get_tp_group
+
+
+def tensor_model_parallel_all_reduce(input_: torch.Tensor) -> torch.Tensor:
+    """All-reduce the input tensor across model parallel group."""
+    return get_tp_group().all_reduce(input_)
+>>>>>>> fixie-ai/vllm/main
 
 
 def tensor_model_parallel_all_gather(input_: torch.Tensor,
                                      dim: int = -1) -> torch.Tensor:
     """All-gather the input tensor across model parallel group."""
-    world_size = get_tensor_model_parallel_world_size()
-    # Bypass the function if we are using only 1 GPU.
-    if world_size == 1:
-        return input_
-    assert -input_.dim() <= dim < input_.dim(), (
-        f"Invalid dim ({dim}) for input tensor with shape {input_.size()}")
-    if dim < 0:
-        # Convert negative dim to positive.
-        dim += input_.dim()
-    input_size = input_.size()
-    # Allocate output tensor.
-    output_tensor = torch.empty((world_size, ) + input_size,
-                                dtype=input_.dtype,
-                                device=input_.device)
-    # All-gather.
-    torch.distributed.all_gather_into_tensor(
-        output_tensor, input_, group=get_tensor_model_parallel_group())
-    # Reshape
-    output_tensor = output_tensor.movedim(0, dim)
-    output_tensor = output_tensor.reshape(input_size[:dim] +
-                                          (world_size * input_size[dim], ) +
-                                          input_size[dim + 1:])
-    return output_tensor
+    return get_tp_group().all_gather(input_, dim)
 
 
 def tensor_model_parallel_gather(input_: torch.Tensor,
                                  dst: int = 0,
                                  dim: int = -1) -> torch.Tensor:
-    """Gather the input tensor across model parallel group.
-
-    NOTE: We assume that the input tensor is on the same device across
-    all the ranks.
-    """
-    world_size = get_tensor_model_parallel_world_size()
-    # Bypass the function if we are using only 1 GPU.
-    if world_size == 1:
-        return input_
-    assert -input_.dim() <= dim < input_.dim(), (
-        f"Invalid dim ({dim}) for input tensor with shape {input_.size()}")
-    if dim < 0:
-        # Convert negative dim to positive.
-        dim += input_.dim()
-    # Allocate output tensor.
-    if get_tensor_model_parallel_rank() == dst:
-        gather_list = [torch.empty_like(input_) for _ in range(world_size)]
-    else:
-        gather_list = None
-    # Gather.
-    torch.distributed.gather(input_,
-                             gather_list,
-                             dst=dst,
-                             group=get_tensor_model_parallel_group())
-    if get_tensor_model_parallel_rank() == dst:
-        output_tensor = torch.cat(gather_list, dim=dim)
-    else:
-        output_tensor = None
-    return output_tensor
+    """Gather the input tensor across model parallel group."""
+    return get_tp_group().gather(input_, dst, dim)
 
 
-def broadcast(input_: torch.Tensor,
-              src: int = 0,
-              group: Optional[ProcessGroup] = None):
-    """Broadcast the input tensor."""
-    group = group or torch.distributed.group.WORLD
-    ranks = torch.distributed.get_process_group_ranks(group)
-    assert src in ranks, f"Invalid src rank ({src})"
-
-    # Bypass the function if we are using only 1 GPU.
-    world_size = torch.distributed.get_world_size(group=group)
-    if world_size == 1:
-        return input_
-    # Broadcast.
-    torch.distributed.broadcast(input_, src=src, group=group)
-    return input_
-
-
-def broadcast_object_list(obj_list: List[Any],
-                          src: int = 0,
-                          group: Optional[ProcessGroup] = None):
-    """Broadcast the input object list."""
-    group = group or torch.distributed.group.WORLD
-    ranks = torch.distributed.get_process_group_ranks(group)
-    assert src in ranks, f"Invalid src rank ({src})"
-
-    # Bypass the function if we are using only 1 GPU.
-    world_size = torch.distributed.get_world_size(group=group)
-    if world_size == 1:
-        return obj_list
-    # Broadcast.
-    torch.distributed.broadcast_object_list(obj_list, src=src, group=group)
-    return obj_list
-
+<<<<<<< HEAD
 
 TensorMetadata = namedtuple("TensorMetadata", ["device", "dtype", "size"])
 
@@ -309,3 +241,11 @@ def broadcast_tensor_dict(
         for async_handle in async_handles:
             async_handle.wait()
     return tensor_dict
+=======
+def broadcast_tensor_dict(tensor_dict: Optional[Dict[Any, Union[torch.Tensor,
+                                                                Any]]] = None,
+                          src: int = 0):
+    if not torch.distributed.is_initialized():
+        return tensor_dict
+    return get_tp_group().broadcast_tensor_dict(tensor_dict, src)
+>>>>>>> fixie-ai/vllm/main

@@ -1,12 +1,15 @@
 from contextlib import contextmanager
-from itertools import chain
 from typing import Dict, List, Tuple
 
 import torch
 
 from vllm.sequence import (CompletionSequenceGroupOutput, Logprob,
                            SamplerOutput, SequenceGroupMetadata,
+<<<<<<< HEAD
                            SequenceGroupOutput, SequenceOutput)
+=======
+                           SequenceOutput)
+>>>>>>> fixie-ai/vllm/main
 
 SeqId = int
 
@@ -16,11 +19,7 @@ def get_all_seq_ids(
     """Given a list of SequenceGroupMetadata, create a list of all
     sequence ids.
     """
-    return list(
-        chain.from_iterable([
-            seq_group_metadata.seq_data.keys()
-            for seq_group_metadata in seq_group_metadata_list
-        ]))
+    return [seq_id for sg in seq_group_metadata_list for seq_id in sg.seq_data]
 
 
 def get_all_num_logprobs(
@@ -68,7 +67,7 @@ def create_sequence_group_output(
     seq_id: SeqId,
     topk_token_ids: List[int],
     topk_logprobs: List[float],
-) -> SequenceGroupOutput:
+) -> CompletionSequenceGroupOutput:
     """Create a SequenceGroupOutput given the sampling results.
 
     Args:

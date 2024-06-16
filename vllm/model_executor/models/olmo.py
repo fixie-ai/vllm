@@ -96,7 +96,12 @@ class OlmoAttention(nn.Module):
         self.attn = Attention(self.num_heads,
                               self.head_dim,
                               scale=self.scaling,
+<<<<<<< HEAD
                               cache_config=cache_config)
+=======
+                              cache_config=cache_config,
+                              quant_config=quant_config)
+>>>>>>> fixie-ai/vllm/main
 
         # Attention output projection.
         self.o_proj = RowParallelLinear(

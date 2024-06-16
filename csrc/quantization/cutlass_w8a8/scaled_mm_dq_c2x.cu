@@ -1,5 +1,11 @@
 #include <stddef.h>
+<<<<<<< HEAD
 #include <torch/extension.h>
+=======
+#include <torch/all.h>
+
+#include <ATen/cuda/CUDAContext.h>
+>>>>>>> fixie-ai/vllm/main
 
 // clang-format will break include orders
 // clang-format off
@@ -20,7 +26,11 @@
 #include "cutlass/epilogue/threadblock/fusion/visitors.hpp"
 #include "cutlass/gemm/kernel/default_gemm_universal_with_visitor.h"
 
+<<<<<<< HEAD
 #include "cutlass_visitor_2x_broadcast_epilogue.hpp"
+=======
+#include "broadcast_load_epilogue_c2x.hpp"
+>>>>>>> fixie-ai/vllm/main
 #include "common.hpp"
 // clang-format on
 
@@ -46,9 +56,50 @@ using namespace cute;
 
 namespace {
 
+<<<<<<< HEAD
 template <typename Arch, typename ElementAB_, typename ElementD_,
           typename TileShape, typename WarpShape, typename InstructionShape,
           int32_t MainLoopStages>
+=======
+// Wrappers for the GEMM kernel that is used to guard against compilation on
+// architectures that will never use the kernel. The purpose of this is to
+// reduce the size of the compiled binary.
+// __CUDA_ARCH__ is not defined in host code, so this lets us smuggle the ifdef
+// into code that will be executed on the device where it is defined.
+template <typename Kernel>
+struct enable_sm75_to_sm80 : Kernel {
+  template <typename... Args>
+  CUTLASS_DEVICE static void invoke(Args&&... args) {
+#if defined __CUDA_ARCH__ && __CUDA_ARCH__ >= 750 && __CUDA_ARCH__ < 800
+    Kernel::invoke(std::forward<Args>(args)...);
+#endif
+  }
+};
+
+template <typename Kernel>
+struct enable_sm80_to_sm89 : Kernel {
+  template <typename... Args>
+  CUTLASS_DEVICE static void invoke(Args&&... args) {
+#if defined __CUDA_ARCH__ && __CUDA_ARCH__ >= 800 && __CUDA_ARCH__ < 890
+    Kernel::invoke(std::forward<Args>(args)...);
+#endif
+  }
+};
+
+template <typename Kernel>
+struct enable_sm89_to_sm90 : Kernel {
+  template <typename... Args>
+  CUTLASS_DEVICE static void invoke(Args&&... args) {
+#if defined __CUDA_ARCH__ && __CUDA_ARCH__ >= 890 && __CUDA_ARCH__ < 900
+    Kernel::invoke(std::forward<Args>(args)...);
+#endif
+  }
+};
+
+template <typename Arch, template <typename> typename ArchGuard,
+          typename ElementAB_, typename ElementD_, typename TileShape,
+          typename WarpShape, typename InstructionShape, int32_t MainLoopStages>
+>>>>>>> fixie-ai/vllm/main
 struct cutlass_2x_gemm {
   using ElementAB = ElementAB_;
   using ElementD = ElementD_;
@@ -99,7 +150,11 @@ struct cutlass_2x_gemm {
   using RowMajor = typename cutlass::layout::RowMajor;
   using ColumnMajor = typename cutlass::layout::ColumnMajor;
   using KernelType = 
+<<<<<<< HEAD
     typename cutlass::gemm::kernel::DefaultGemmWithVisitor<
+=======
+    ArchGuard<typename cutlass::gemm::kernel::DefaultGemmWithVisitor<
+>>>>>>> fixie-ai/vllm/main
       ElementAB, RowMajor, cutlass::ComplexTransform::kNone, 16, 
       ElementAB, ColumnMajor, cutlass::ComplexTransform::kNone, 16, 
       float, cutlass::layout::RowMajor, 4,
@@ -110,17 +165,28 @@ struct cutlass_2x_gemm {
       cutlass::gemm::threadblock::ThreadblockSwizzleStreamK,
       MainLoopStages, Operator,
       1 /* epilogue stages */
+<<<<<<< HEAD
       >::GemmKernel;
+=======
+      >::GemmKernel>;
+>>>>>>> fixie-ai/vllm/main
   // clang-format on
 
   using Op = cutlass::gemm::device::GemmUniversalAdapter<KernelType>;
 };
 
 template <typename Gemm>
+<<<<<<< HEAD
 void cutlass_scaled_mm_dq_dispatcher(torch::Tensor &out, torch::Tensor const &a,
                                      torch::Tensor const &b,
                                      torch::Tensor const &a_scales,
                                      torch::Tensor const &b_scales) {
+=======
+void cutlass_scaled_mm_dq_dispatcher(torch::Tensor& out, torch::Tensor const& a,
+                                     torch::Tensor const& b,
+                                     torch::Tensor const& a_scales,
+                                     torch::Tensor const& b_scales) {
+>>>>>>> fixie-ai/vllm/main
   using ElementAB = typename Gemm::ElementAB;
   using ElementD = typename Gemm::ElementD;
 
@@ -136,13 +202,20 @@ void cutlass_scaled_mm_dq_dispatcher(torch::Tensor &out, torch::Tensor const &a,
   using StrideC = Stride<int64_t, Int<1>, Int<0>>;
   StrideC c_stride{ldc, Int<1>{}, Int<0>{}};
 
+<<<<<<< HEAD
   auto a_ptr = static_cast<ElementAB const *>(a.data_ptr());
   auto b_ptr = static_cast<ElementAB const *>(b.data_ptr());
   auto c_ptr = static_cast<ElementD *>(out.data_ptr());
+=======
+  auto a_ptr = static_cast<ElementAB const*>(a.data_ptr());
+  auto b_ptr = static_cast<ElementAB const*>(b.data_ptr());
+  auto c_ptr = static_cast<ElementD*>(out.data_ptr());
+>>>>>>> fixie-ai/vllm/main
 
   auto a_scales_ptr = a_scales.data_ptr<float>();
   auto b_scales_ptr = b_scales.data_ptr<float>();
 
+<<<<<<< HEAD
   // If A and B are quantized per-tensor, then these scale tensors are scalars,
   // and they are passed in via the second argument.
   using ScaleAArgs = typename Gemm::ScaleA::Arguments;
@@ -154,6 +227,13 @@ void cutlass_scaled_mm_dq_dispatcher(torch::Tensor &out, torch::Tensor const &a,
   ScaleBArgs b_args = b_scales.numel() == 1
                           ? ScaleBArgs{nullptr, b_scales.item<float>(), {}}
                           : ScaleBArgs{b_scales.data_ptr<float>(), {}, {}};
+=======
+  using ScaleAArgs = typename Gemm::ScaleA::Arguments;
+  using ScaleBArgs = typename Gemm::ScaleB::Arguments;
+
+  ScaleBArgs b_args{b_scales.data_ptr<float>(), b_scales.numel() != 1, {}};
+  ScaleAArgs a_args{a_scales.data_ptr<float>(), a_scales.numel() != 1, {}};
+>>>>>>> fixie-ai/vllm/main
 
   typename Gemm::EVTCompute0::Arguments evt0_compute_args{b_args};
 
@@ -189,17 +269,31 @@ void cutlass_scaled_mm_dq_dispatcher(torch::Tensor &out, torch::Tensor const &a,
   size_t workspace_size = gemm_op.get_workspace_size(args);
   cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
 
+<<<<<<< HEAD
   CUTLASS_CHECK(gemm_op.can_implement(args));
   cutlass::Status status = gemm_op(args, workspace.get());
+=======
+  auto stream = at::cuda::getCurrentCUDAStream(a.get_device());
+
+  CUTLASS_CHECK(gemm_op.can_implement(args));
+  cutlass::Status status = gemm_op(args, workspace.get(), stream);
+>>>>>>> fixie-ai/vllm/main
   CUTLASS_CHECK(status);
 }
 
 }  // namespace
 
+<<<<<<< HEAD
 void cutlass_scaled_mm_dq_sm75(torch::Tensor &out, torch::Tensor const &a,
                                torch::Tensor const &b,
                                torch::Tensor const &a_scales,
                                torch::Tensor const &b_scales) {
+=======
+void cutlass_scaled_mm_dq_sm75(torch::Tensor& out, torch::Tensor const& a,
+                               torch::Tensor const& b,
+                               torch::Tensor const& a_scales,
+                               torch::Tensor const& b_scales) {
+>>>>>>> fixie-ai/vllm/main
   TORCH_CHECK(a.dtype() == torch::kInt8);
   TORCH_CHECK(b.dtype() == torch::kInt8);
   TORCH_CHECK(a_scales.dtype() == torch::kFloat32);
@@ -210,6 +304,7 @@ void cutlass_scaled_mm_dq_sm75(torch::Tensor &out, torch::Tensor const &a,
   using InstructionShape = typename cutlass::gemm::GemmShape<8, 8, 16>;
 
   if (out.dtype() == torch::kBFloat16) {
+<<<<<<< HEAD
     return cutlass_scaled_mm_dq_dispatcher<
         cutlass_2x_gemm<cutlass::arch::Sm75, int8_t, cutlass::bfloat16_t,
                         TileShape, WarpShape, InstructionShape, 2>>(
@@ -227,6 +322,25 @@ void cutlass_scaled_mm_dq_sm80(torch::Tensor &out, torch::Tensor const &a,
                                torch::Tensor const &b,
                                torch::Tensor const &a_scales,
                                torch::Tensor const &b_scales) {
+=======
+    return cutlass_scaled_mm_dq_dispatcher<cutlass_2x_gemm<
+        cutlass::arch::Sm75, enable_sm75_to_sm80, int8_t, cutlass::bfloat16_t,
+        TileShape, WarpShape, InstructionShape, 2>>(out, a, b, a_scales,
+                                                    b_scales);
+  } else {
+    TORCH_CHECK(out.dtype() == torch::kFloat16);
+    return cutlass_scaled_mm_dq_dispatcher<cutlass_2x_gemm<
+        cutlass::arch::Sm75, enable_sm75_to_sm80, int8_t, cutlass::half_t,
+        TileShape, WarpShape, InstructionShape, 2>>(out, a, b, a_scales,
+                                                    b_scales);
+  }
+}
+
+void cutlass_scaled_mm_dq_sm80(torch::Tensor& out, torch::Tensor const& a,
+                               torch::Tensor const& b,
+                               torch::Tensor const& a_scales,
+                               torch::Tensor const& b_scales) {
+>>>>>>> fixie-ai/vllm/main
   TORCH_CHECK(a.dtype() == torch::kInt8);
   TORCH_CHECK(b.dtype() == torch::kInt8);
   TORCH_CHECK(a_scales.dtype() == torch::kFloat32);
@@ -237,6 +351,7 @@ void cutlass_scaled_mm_dq_sm80(torch::Tensor &out, torch::Tensor const &a,
   using InstructionShape = typename cutlass::gemm::GemmShape<16, 8, 32>;
 
   if (out.dtype() == torch::kBFloat16) {
+<<<<<<< HEAD
     return cutlass_scaled_mm_dq_dispatcher<
         cutlass_2x_gemm<cutlass::arch::Sm80, int8_t, cutlass::bfloat16_t,
                         TileShape, WarpShape, InstructionShape, 5>>(
@@ -254,6 +369,25 @@ void cutlass_scaled_mm_dq_sm89(torch::Tensor &out, torch::Tensor const &a,
                                torch::Tensor const &b,
                                torch::Tensor const &a_scales,
                                torch::Tensor const &b_scales) {
+=======
+    return cutlass_scaled_mm_dq_dispatcher<cutlass_2x_gemm<
+        cutlass::arch::Sm80, enable_sm80_to_sm89, int8_t, cutlass::bfloat16_t,
+        TileShape, WarpShape, InstructionShape, 5>>(out, a, b, a_scales,
+                                                    b_scales);
+  } else {
+    TORCH_CHECK(out.dtype() == torch::kFloat16);
+    return cutlass_scaled_mm_dq_dispatcher<cutlass_2x_gemm<
+        cutlass::arch::Sm80, enable_sm80_to_sm89, int8_t, cutlass::half_t,
+        TileShape, WarpShape, InstructionShape, 5>>(out, a, b, a_scales,
+                                                    b_scales);
+  }
+}
+
+void cutlass_scaled_mm_dq_sm89(torch::Tensor& out, torch::Tensor const& a,
+                               torch::Tensor const& b,
+                               torch::Tensor const& a_scales,
+                               torch::Tensor const& b_scales) {
+>>>>>>> fixie-ai/vllm/main
   using TileShape = typename cutlass::gemm::GemmShape<128, 128, 64>;
   using WarpShape = typename cutlass::gemm::GemmShape<64, 64, 64>;
   using InstructionShape = typename cutlass::gemm::GemmShape<16, 8, 32>;
@@ -265,6 +399,7 @@ void cutlass_scaled_mm_dq_sm89(torch::Tensor &out, torch::Tensor const &a,
     TORCH_CHECK(b.dtype() == torch::kInt8);
 
     if (out.dtype() == torch::kBFloat16) {
+<<<<<<< HEAD
       return cutlass_scaled_mm_dq_dispatcher<
           cutlass_2x_gemm<cutlass::arch::Sm89, int8_t, cutlass::bfloat16_t,
                           TileShape, WarpShape, InstructionShape, 5>>(
@@ -275,6 +410,18 @@ void cutlass_scaled_mm_dq_sm89(torch::Tensor &out, torch::Tensor const &a,
           cutlass_2x_gemm<cutlass::arch::Sm89, int8_t, cutlass::half_t,
                           TileShape, WarpShape, InstructionShape, 5>>(
           out, a, b, a_scales, b_scales);
+=======
+      return cutlass_scaled_mm_dq_dispatcher<cutlass_2x_gemm<
+          cutlass::arch::Sm89, enable_sm89_to_sm90, int8_t, cutlass::bfloat16_t,
+          TileShape, WarpShape, InstructionShape, 5>>(out, a, b, a_scales,
+                                                      b_scales);
+    } else {
+      assert(out.dtype() == torch::kFloat16);
+      return cutlass_scaled_mm_dq_dispatcher<cutlass_2x_gemm<
+          cutlass::arch::Sm89, enable_sm89_to_sm90, int8_t, cutlass::half_t,
+          TileShape, WarpShape, InstructionShape, 5>>(out, a, b, a_scales,
+                                                      b_scales);
+>>>>>>> fixie-ai/vllm/main
     }
   } else {
     TORCH_CHECK(a.dtype() == torch::kFloat8_e4m3fn);
@@ -282,6 +429,7 @@ void cutlass_scaled_mm_dq_sm89(torch::Tensor &out, torch::Tensor const &a,
 
     if (out.dtype() == torch::kBFloat16) {
       return cutlass_scaled_mm_dq_dispatcher<cutlass_2x_gemm<
+<<<<<<< HEAD
           cutlass::arch::Sm89, cutlass::float_e4m3_t, cutlass::bfloat16_t,
           TileShape, WarpShape, InstructionShape, 5>>(out, a, b, a_scales,
                                                       b_scales);
@@ -291,6 +439,17 @@ void cutlass_scaled_mm_dq_sm89(torch::Tensor &out, torch::Tensor const &a,
           cutlass::arch::Sm89, cutlass::float_e4m3_t, cutlass::half_t,
           TileShape, WarpShape, InstructionShape, 5>>(out, a, b, a_scales,
                                                       b_scales);
+=======
+          cutlass::arch::Sm89, enable_sm89_to_sm90, cutlass::float_e4m3_t,
+          cutlass::bfloat16_t, TileShape, WarpShape, InstructionShape, 5>>(
+          out, a, b, a_scales, b_scales);
+    } else {
+      TORCH_CHECK(out.dtype() == torch::kFloat16);
+      return cutlass_scaled_mm_dq_dispatcher<cutlass_2x_gemm<
+          cutlass::arch::Sm89, enable_sm89_to_sm90, cutlass::float_e4m3_t,
+          cutlass::half_t, TileShape, WarpShape, InstructionShape, 5>>(
+          out, a, b, a_scales, b_scales);
+>>>>>>> fixie-ai/vllm/main
     }
   }
 }

@@ -1,4 +1,8 @@
+<<<<<<< HEAD:csrc/punica/punica_ops.cu
 #include <torch/extension.h>
+=======
+#include <torch/all.h>
+>>>>>>> fixie-ai/vllm/main:csrc/punica/punica_ops.cc
 #include <c10/cuda/CUDAGuard.h>
 #include <cstdint>
 
@@ -88,7 +92,7 @@ inline bool launch_bgmv_kernel(out_T *Y, const in_T *X, const W_T *W,
 }
 
 void dispatch_bgmv(torch::Tensor y, torch::Tensor x, torch::Tensor w,
-                   torch::Tensor indicies, int64_t layer_idx, float scale) {
+                   torch::Tensor indicies, int64_t layer_idx, double scale) {
   CHECK_INPUT(y);
   CHECK_INPUT(x);
   CHECK_INPUT(w);
@@ -320,7 +324,7 @@ void dispatch_bgmv(torch::Tensor y, torch::Tensor x, torch::Tensor w,
 
 void dispatch_bgmv_low_level(torch::Tensor y, torch::Tensor x, torch::Tensor w,
                              torch::Tensor indicies, int64_t layer_idx,
-                             float scale, int64_t h_in, int64_t h_out,
+                             double scale, int64_t h_in, int64_t h_out,
                              int64_t y_offset) {
   CHECK_INPUT(y);
   CHECK_INPUT(x);

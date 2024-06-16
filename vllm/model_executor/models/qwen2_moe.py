@@ -241,7 +241,12 @@ class Qwen2MoeAttention(nn.Module):
                               self.head_dim,
                               self.scaling,
                               num_kv_heads=self.num_kv_heads,
+<<<<<<< HEAD
                               cache_config=cache_config)
+=======
+                              cache_config=cache_config,
+                              quant_config=quant_config)
+>>>>>>> fixie-ai/vllm/main
 
     def forward(
         self,

@@ -9,4 +9,8 @@ Integrations
    deploying_with_triton
    deploying_with_bentoml
    deploying_with_lws
+<<<<<<< HEAD
+=======
+   deploying_with_dstack
+>>>>>>> fixie-ai/vllm/main
    serving_with_langchain

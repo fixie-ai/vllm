@@ -33,6 +33,8 @@ _GENERATION_MODELS = {
     "LlamaForCausalLM": ("llama", "LlamaForCausalLM"),
     "LlavaForConditionalGeneration":
     ("llava", "LlavaForConditionalGeneration"),
+    "LlavaNextForConditionalGeneration":
+    ("llava_next", "LlavaNextForConditionalGeneration"),
     # For decapoda-research/llama-*
     "LLaMAForCausalLM": ("llama", "LlamaForCausalLM"),
     "MistralForCausalLM": ("llama", "LlamaForCausalLM"),
@@ -56,7 +58,11 @@ _GENERATION_MODELS = {
     "Starcoder2ForCausalLM": ("starcoder2", "Starcoder2ForCausalLM"),
     "ArcticForCausalLM": ("arctic", "ArcticForCausalLM"),
     "XverseForCausalLM": ("xverse", "XverseForCausalLM"),
+<<<<<<< HEAD
     "UltravoxModel": ("ultravox", "UltravoxModel"),
+=======
+    "Phi3SmallForCausalLM": ("phi3_small", "Phi3SmallForCausalLM"),
+>>>>>>> fixie-ai/vllm/main
 }
 
 _EMBEDDING_MODELS = {

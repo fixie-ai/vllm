@@ -1,7 +1,11 @@
 import os
 import zipfile
 
+<<<<<<< HEAD
 MAX_SIZE_MB = 150
+=======
+MAX_SIZE_MB = 200
+>>>>>>> fixie-ai/vllm/main
 
 
 def print_top_10_largest_files(zip_file):

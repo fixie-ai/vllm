@@ -2,6 +2,11 @@ import os
 import subprocess
 import sys
 import time
+<<<<<<< HEAD
+=======
+import warnings
+from contextlib import contextmanager
+>>>>>>> fixie-ai/vllm/main
 
 import ray
 import requests
@@ -22,7 +27,12 @@ class ServerRunner:
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
         self.proc = subprocess.Popen(
+<<<<<<< HEAD
             ["python3", "-m", "vllm.entrypoints.openai.api_server"] + args,
+=======
+            [sys.executable, "-m", "vllm.entrypoints.openai.api_server"] +
+            args,
+>>>>>>> fixie-ai/vllm/main
             env=env,
             stdout=sys.stdout,
             stderr=sys.stderr,
@@ -87,3 +97,18 @@ def multi_process_tensor_parallel(
     ray.get(refs)
 
     ray.shutdown()
+<<<<<<< HEAD
+=======
+
+
+@contextmanager
+def error_on_warning():
+    """
+    Within the scope of this context manager, tests will fail if any warning
+    is emitted.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+
+        yield
+>>>>>>> fixie-ai/vllm/main

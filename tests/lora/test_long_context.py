@@ -86,31 +86,48 @@ def generate(
 
 
 def batched_generate(
+<<<<<<< HEAD
     llm,
+=======
+    llm: vllm.LLM,
+>>>>>>> fixie-ai/vllm/main
     inputs: List[Tuple[str, SamplingParams, Optional[LoRARequest]]],
 ):
     for input in inputs:
         prompt, sampling_param, lora_req = input
+<<<<<<< HEAD
         requests_data = llm._validate_and_prepare_requests(
+=======
+        # Add requests to the engine and run the engine
+        llm._validate_and_add_requests(
+>>>>>>> fixie-ai/vllm/main
             prompt,
             sampling_param,
             lora_request=lora_req,
         )
 
+<<<<<<< HEAD
         # Add requests to the engine and run the engine
         for request_data in requests_data:
             llm._add_request(**request_data)
+=======
+>>>>>>> fixie-ai/vllm/main
     outputs = llm._run_engine(use_tqdm=True)
     return [outputs[i].outputs[0].text.strip() for i in range(len(outputs))]
 
 
+<<<<<<< HEAD
 @pytest.fixture
+=======
+@pytest.fixture(scope="module")
+>>>>>>> fixie-ai/vllm/main
 def lora_llm(long_context_infos):
     scaling_factors = [
         context_len_to_scaling_factor[info["context_length"]]
         for info in long_context_infos.values()
     ]
 
+<<<<<<< HEAD
     llm = vllm.LLM(
         "meta-llama/Llama-2-13b-chat-hf",
         enable_lora=True,
@@ -120,6 +137,16 @@ def lora_llm(long_context_infos):
         max_num_batched_tokens=4096 * 8,
         tensor_parallel_size=4,
     )
+=======
+    llm = vllm.LLM("meta-llama/Llama-2-13b-chat-hf",
+                   enable_lora=True,
+                   max_num_seqs=16,
+                   max_loras=2,
+                   long_lora_scaling_factors=tuple(scaling_factors),
+                   max_num_batched_tokens=4096 * 8,
+                   tensor_parallel_size=4,
+                   distributed_executor_backend="mp")
+>>>>>>> fixie-ai/vllm/main
     yield llm
     del llm
 
@@ -156,6 +183,10 @@ def test_rotary_emb_replaced(dist_init):
     assert rotary_emb_count == 32
 
 
+<<<<<<< HEAD
+=======
+@pytest.mark.skip_global_cleanup
+>>>>>>> fixie-ai/vllm/main
 def test_batched_rope_kernel(lora_llm, long_context_infos):
     """We test the batched kernel by comparing the results of batched an
         non-batched generation.
@@ -190,6 +221,10 @@ def test_batched_rope_kernel(lora_llm, long_context_infos):
             f"same:\n{batched}\n{non_batched}")
 
 
+<<<<<<< HEAD
+=======
+@pytest.mark.skip_global_cleanup
+>>>>>>> fixie-ai/vllm/main
 def test_self_consistency(lora_llm, long_context_infos):
     """We test consistency of the batched kernel by permuting batched
     inputs and comparing the results to the non-permuted batched results.
@@ -229,6 +264,10 @@ def test_self_consistency(lora_llm, long_context_infos):
                 f"\n{permutated_batched_results[permutation[i]]}")
 
 
+<<<<<<< HEAD
+=======
+@pytest.mark.skip_global_cleanup
+>>>>>>> fixie-ai/vllm/main
 def test_quality(lora_llm, long_context_infos):
     """We test the quality of the answers given by the LoRA model by
         comparing the generated text to the merged model's outputs.
@@ -259,6 +298,10 @@ def test_quality(lora_llm, long_context_infos):
     assert np.mean(scores) > 0.5
 
 
+<<<<<<< HEAD
+=======
+@pytest.mark.skip_global_cleanup
+>>>>>>> fixie-ai/vllm/main
 def test_max_len(lora_llm, long_context_infos):
     """Test that we raise an ValueError when the input of a given LoRA
         model exceeds the maximum length."""

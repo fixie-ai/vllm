@@ -47,7 +47,11 @@ class EmbeddingModelRunner(ModelRunner):
     @torch.inference_mode()
     def execute_model(
         self,
+<<<<<<< HEAD
         seq_group_metadata_list: List[SequenceGroupMetadata],
+=======
+        seq_group_metadata_list: Optional[List[SequenceGroupMetadata]],
+>>>>>>> fixie-ai/vllm/main
         kv_caches: List[torch.Tensor],
     ) -> Optional[PoolerOutput]:
         (input_tokens, input_positions, attn_metadata, pooling_metadata,
@@ -79,15 +83,30 @@ class EmbeddingModelRunner(ModelRunner):
             execute_model_kwargs.update({"image_input": multi_modal_input})
         hidden_states = model_executable(**execute_model_kwargs)
 
+<<<<<<< HEAD
+=======
+        # Only perform pooling in the driver worker.
+        if not self.is_driver_worker:
+            return None
+
+>>>>>>> fixie-ai/vllm/main
         return self.model.pooler(hidden_states=hidden_states,
                                  pooling_metadata=pooling_metadata)
 
     def prepare_input_tensors(
         self,
+<<<<<<< HEAD
         seq_group_metadata_list: List[SequenceGroupMetadata],
     ) -> Tuple[torch.Tensor, torch.Tensor, AttentionMetadata, PoolingMetadata,
                Set[LoRARequest], LoRAMapping, torch.Tensor]:
         if self.is_driver_worker:
+=======
+        seq_group_metadata_list: Optional[List[SequenceGroupMetadata]],
+    ) -> Tuple[torch.Tensor, torch.Tensor, AttentionMetadata, PoolingMetadata,
+               Set[LoRARequest], LoRAMapping, Dict[str, torch.Tensor]]:
+        if self.is_driver_worker:
+            assert seq_group_metadata_list is not None
+>>>>>>> fixie-ai/vllm/main
             # Prepare input tensors.
             (
                 input_tokens,
@@ -97,7 +116,11 @@ class EmbeddingModelRunner(ModelRunner):
                 _,
                 lora_mapping,
                 lora_requests,
+<<<<<<< HEAD
                 multi_modal_input,
+=======
+                multi_modal_kwargs,
+>>>>>>> fixie-ai/vllm/main
                 slot_mapping,
                 num_prefill_tokens,
                 num_decode_tokens,
@@ -112,7 +135,11 @@ class EmbeddingModelRunner(ModelRunner):
                 "input_positions": input_positions,
                 "lora_requests": lora_requests,
                 "lora_mapping": lora_mapping,
+<<<<<<< HEAD
                 "multi_modal_input": multi_modal_input,
+=======
+                "multi_modal_kwargs": multi_modal_kwargs,
+>>>>>>> fixie-ai/vllm/main
                 "num_prefill_tokens": num_prefill_tokens,
                 "num_decode_tokens": num_decode_tokens,
                 "slot_mapping": slot_mapping,
@@ -127,7 +154,11 @@ class EmbeddingModelRunner(ModelRunner):
             input_positions = metadata_dict.pop("input_positions")
             lora_mapping = metadata_dict.pop("lora_mapping")
             lora_requests = metadata_dict.pop("lora_requests")
+<<<<<<< HEAD
             multi_modal_input = metadata_dict.pop("multi_modal_input")
+=======
+            multi_modal_kwargs = metadata_dict.pop("multi_modal_kwargs")
+>>>>>>> fixie-ai/vllm/main
             if metadata_dict:
                 attn_metadata = self.attn_backend.make_metadata(
                     **metadata_dict)
@@ -138,7 +169,11 @@ class EmbeddingModelRunner(ModelRunner):
                                                prompt_lens=None)
 
         return (input_tokens, input_positions, attn_metadata, pooling_metadata,
+<<<<<<< HEAD
                 lora_requests, lora_mapping, multi_modal_input)
+=======
+                lora_requests, lora_mapping, multi_modal_kwargs)
+>>>>>>> fixie-ai/vllm/main
 
     def _prepare_pooling(
         self,
