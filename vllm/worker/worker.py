@@ -1,4 +1,5 @@
 """A GPU worker class."""
+
 import gc
 import os
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
@@ -6,13 +7,24 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import torch
 import torch.distributed
 
-from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
-                         ModelConfig, ParallelConfig, SchedulerConfig,
-                         SpeculativeConfig, VisionLanguageConfig)
-from vllm.distributed import (broadcast_tensor_dict,
-                              ensure_model_parallel_initialized,
-                              init_distributed_environment,
-                              set_custom_all_reduce)
+from vllm.config import (
+    CacheConfig,
+    DeviceConfig,
+    LoadConfig,
+    LoRAConfig,
+    ModelConfig,
+    ParallelConfig,
+    SchedulerConfig,
+    SpeculativeConfig,
+    VisionLanguageConfig,
+    AudioLanguageConfig,
+)
+from vllm.distributed import (
+    broadcast_tensor_dict,
+    ensure_model_parallel_initialized,
+    init_distributed_environment,
+    set_custom_all_reduce,
+)
 from vllm.lora.request import LoRARequest
 from vllm.model_executor import set_random_seed
 from vllm.model_executor.model_loader.tensorizer import TensorizerConfig
@@ -44,6 +56,7 @@ class Worker(WorkerBase):
         distributed_init_method: str,
         lora_config: Optional[LoRAConfig] = None,
         vision_language_config: Optional[VisionLanguageConfig] = None,
+        audio_language_config: Optional[AudioLanguageConfig] = None,
         speculative_config: Optional[SpeculativeConfig] = None,
         is_driver_worker: bool = False,
     ) -> None:
@@ -64,11 +77,14 @@ class Worker(WorkerBase):
         if self.model_config.trust_remote_code:
             # note: lazy import to avoid importing torch before initializing
             from vllm.utils import init_cached_hf_modules
+
             init_cached_hf_modules()
         self.vision_language_config = vision_language_config
-        if self.vision_language_config:
-            assert not self.lora_config, (
-                "To be tested: vision language model with LoRA settings.")
+        self.audio_language_config = audio_language_config
+        if self.vision_language_config or self.audio_language_config:
+            assert (
+                not self.lora_config
+            ), "To be tested: vision language model with LoRA settings."
 
         ModelRunnerClass = (EmbeddingModelRunner if
                             self.model_config.embedding_mode else ModelRunner)
@@ -83,6 +99,7 @@ class Worker(WorkerBase):
             kv_cache_dtype=self.cache_config.cache_dtype,
             is_driver_worker=is_driver_worker,
             vision_language_config=vision_language_config,
+            audio_language_config=audio_language_config,
         )
         # Uninitialized cache engine. Will be initialized by
         # initialize_cache.
@@ -112,9 +129,12 @@ class Worker(WorkerBase):
             raise RuntimeError(
                 f"Not support device type: {self.device_config.device}")
         # Initialize the distributed environment.
-        init_worker_distributed_environment(self.parallel_config, self.rank,
-                                            self.distributed_init_method,
-                                            self.local_rank)
+        init_worker_distributed_environment(
+            self.parallel_config,
+            self.rank,
+            self.distributed_init_method,
+            self.local_rank,
+        )
         # Set random seed.
         set_random_seed(self.model_config.seed)
 
@@ -192,9 +212,11 @@ class Worker(WorkerBase):
 
         This also warms up the model, which may record CUDA graphs.
         """
-        raise_if_cache_size_invalid(num_gpu_blocks,
-                                    self.cache_config.block_size,
-                                    self.model_config.max_model_len)
+        raise_if_cache_size_invalid(
+            num_gpu_blocks,
+            self.cache_config.block_size,
+            self.model_config.max_model_len,
+        )
 
         self.cache_config.num_gpu_blocks = num_gpu_blocks
         self.cache_config.num_cpu_blocks = num_cpu_blocks
@@ -254,15 +276,19 @@ class Worker(WorkerBase):
         blocks_to_swap_in = torch.tensor(execute_model_req.blocks_to_swap_in,
                                          device="cpu",
                                          dtype=torch.int64).view(-1, 2)
-        blocks_to_swap_out = torch.tensor(execute_model_req.blocks_to_swap_out,
-                                          device="cpu",
-                                          dtype=torch.int64).view(-1, 2)
+        blocks_to_swap_out = torch.tensor(
+            execute_model_req.blocks_to_swap_out,
+            device="cpu",
+            dtype=torch.int64,
+        ).view(-1, 2)
         # `blocks_to_copy` is a gpu tensor. The src and tgt of
         # blocks to copy are in the same device, and `blocks_to_copy`
         # can be used directly within cuda kernels.
-        blocks_to_copy = torch.tensor(execute_model_req.blocks_to_copy,
-                                      device=self.device,
-                                      dtype=torch.int64).view(-1, 2)
+        blocks_to_copy = torch.tensor(
+            execute_model_req.blocks_to_copy,
+            device=self.device,
+            dtype=torch.int64,
+        ).view(-1, 2)
         data: Dict[str, Any] = {
             "num_seq_groups": num_seq_groups,
             "blocks_to_swap_in": blocks_to_swap_in,
@@ -335,8 +361,7 @@ class Worker(WorkerBase):
         return self.model_runner.vocab_size
 
     def get_cache_block_size_bytes(self) -> int:
-        """Get the size of the KV cache block size in bytes.
-        """
+        """Get the size of the KV cache block size in bytes."""
         return CacheEngine.get_cache_block_size(self.cache_config,
                                                 self.model_config,
                                                 self.parallel_config)
@@ -354,8 +379,10 @@ def init_worker_distributed_environment(
     init_distributed_environment(parallel_config.world_size, rank,
                                  distributed_init_method, local_rank)
 
-    ensure_model_parallel_initialized(parallel_config.tensor_parallel_size,
-                                      parallel_config.pipeline_parallel_size)
+    ensure_model_parallel_initialized(
+        parallel_config.tensor_parallel_size,
+        parallel_config.pipeline_parallel_size,
+    )
 
 
 def _check_if_gpu_supports_dtype(torch_dtype: torch.dtype):

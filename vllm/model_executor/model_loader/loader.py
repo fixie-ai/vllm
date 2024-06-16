@@ -15,23 +15,44 @@ import torch
 from huggingface_hub import HfApi, hf_hub_download
 from torch import nn
 
-from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoadFormat,
-                         LoRAConfig, ModelConfig, ParallelConfig,
-                         SchedulerConfig, VisionLanguageConfig)
+from vllm.config import (
+    CacheConfig,
+    DeviceConfig,
+    LoadConfig,
+    LoadFormat,
+    LoRAConfig,
+    ModelConfig,
+    ParallelConfig,
+    SchedulerConfig,
+    VisionLanguageConfig,
+    AudioLanguageConfig,
+)
 from vllm.envs import VLLM_USE_MODELSCOPE
 from vllm.logger import init_logger
 from vllm.model_executor.layers.quantization.base_config import (
-    QuantizationConfig)
+    QuantizationConfig, )
 from vllm.model_executor.model_loader.tensorizer import (
-    TensorizerConfig, is_vllm_tensorized, load_with_tensorizer,
-    serialize_vllm_model, tensorizer_weights_iterator)
-from vllm.model_executor.model_loader.utils import (get_model_architecture,
-                                                    set_default_torch_dtype)
+    TensorizerConfig,
+    is_vllm_tensorized,
+    load_with_tensorizer,
+    serialize_vllm_model,
+    tensorizer_weights_iterator,
+)
+from vllm.model_executor.model_loader.utils import (
+    get_model_architecture,
+    set_default_torch_dtype,
+)
 from vllm.model_executor.model_loader.weight_utils import (
-    download_safetensors_index_file_from_hf, download_weights_from_hf,
-    filter_duplicate_safetensors_files, filter_files_not_needed_for_inference,
-    get_quant_config, initialize_dummy_weights, np_cache_weights_iterator,
-    pt_weights_iterator, safetensors_weights_iterator)
+    download_safetensors_index_file_from_hf,
+    download_weights_from_hf,
+    filter_duplicate_safetensors_files,
+    filter_files_not_needed_for_inference,
+    get_quant_config,
+    initialize_dummy_weights,
+    np_cache_weights_iterator,
+    pt_weights_iterator,
+    safetensors_weights_iterator,
+)
 from vllm.model_executor.models.vlm_base import VisionLanguageModelBase
 from vllm.model_executor.utils import set_weight_attrs
 from vllm.utils import is_tpu
@@ -64,8 +85,10 @@ def _get_quantization_config(
 
 
 def _get_model_initialization_kwargs(
-        model_class: Type[nn.Module], lora_config: Optional[LoRAConfig],
-        vision_language_config: Optional[VisionLanguageConfig]
+    model_class: Type[nn.Module],
+    lora_config: Optional[LoRAConfig],
+    vision_language_config: Optional[VisionLanguageConfig],
+    audio_language_config: Optional[AudioLanguageConfig],
 ) -> Dict[str, Any]:
     """Get extra kwargs for model initialization."""
     extra_kwargs: Dict[str, Any] = {}
@@ -84,22 +107,34 @@ def _get_model_initialization_kwargs(
                              "or engine arguments.")
 
         extra_kwargs["vision_language_config"] = vision_language_config
+    elif model_class in _AUDIO_MODEL_CLASSES:
+        extra_kwargs["audio_language_config"] = audio_language_config
     return extra_kwargs
 
 
-def _initialize_model(model_config: ModelConfig, load_config: LoadConfig,
-                      lora_config: Optional[LoRAConfig],
-                      vision_language_config: Optional[VisionLanguageConfig],
-                      cache_config: CacheConfig) -> nn.Module:
+def _initialize_model(
+    model_config: ModelConfig,
+    load_config: LoadConfig,
+    lora_config: Optional[LoRAConfig],
+    vision_language_config: Optional[VisionLanguageConfig],
+    audio_language_config: Optional[AudioLanguageConfig],
+    cache_config: CacheConfig,
+) -> nn.Module:
     """Initialize a model with the given configurations."""
     model_class = get_model_architecture(model_config)[0]
     quant_config = _get_quantization_config(model_config, load_config)
 
-    return model_class(config=model_config.hf_config,
-                       cache_config=cache_config,
-                       quant_config=quant_config,
-                       **_get_model_initialization_kwargs(
-                           model_class, lora_config, vision_language_config))
+    return model_class(
+        config=model_config.hf_config,
+        cache_config=cache_config,
+        quant_config=quant_config,
+        **_get_model_initialization_kwargs(
+            model_class,
+            lora_config,
+            vision_language_config,
+            audio_language_config,
+        ),
+    )
 
 
 class BaseModelLoader(ABC):
@@ -109,13 +144,17 @@ class BaseModelLoader(ABC):
         self.load_config = load_config
 
     @abstractmethod
-    def load_model(self, *, model_config: ModelConfig,
-                   device_config: DeviceConfig,
-                   lora_config: Optional[LoRAConfig],
-                   vision_language_config: Optional[VisionLanguageConfig],
-                   parallel_config: ParallelConfig,
-                   scheduler_config: SchedulerConfig,
-                   cache_config: CacheConfig) -> nn.Module:
+    def load_model(
+        self,
+        *,
+        model_config: ModelConfig,
+        device_config: DeviceConfig,
+        lora_config: Optional[LoRAConfig],
+        vision_language_config: Optional[VisionLanguageConfig],
+        parallel_config: ParallelConfig,
+        scheduler_config: SchedulerConfig,
+        cache_config: CacheConfig,
+    ) -> nn.Module:
         """Load a model with the given configurations."""
         ...
 
@@ -153,14 +192,17 @@ class DefaultModelLoader(BaseModelLoader):
             return model_path
         return None
 
-    def _prepare_weights(self, model_name_or_path: str,
-                         revision: Optional[str],
-                         fall_back_to_pt: bool) -> Tuple[str, List[str], bool]:
+    def _prepare_weights(
+        self,
+        model_name_or_path: str,
+        revision: Optional[str],
+        fall_back_to_pt: bool,
+    ) -> Tuple[str, List[str], bool]:
         """Prepare weights for the model.
 
         If the model is not local, it will be downloaded."""
-        model_name_or_path = self._maybe_download_from_modelscope(
-            model_name_or_path, revision) or model_name_or_path
+        model_name_or_path = (self._maybe_download_from_modelscope(
+            model_name_or_path, revision) or model_name_or_path)
 
         is_local = os.path.isdir(model_name_or_path)
         load_format = self.load_config.load_format
@@ -182,9 +224,12 @@ class DefaultModelLoader(BaseModelLoader):
             allow_patterns += ["*.pt"]
 
         if not is_local:
-            hf_folder = download_weights_from_hf(model_name_or_path,
-                                                 self.load_config.download_dir,
-                                                 allow_patterns, revision)
+            hf_folder = download_weights_from_hf(
+                model_name_or_path,
+                self.load_config.download_dir,
+                allow_patterns,
+                revision,
+            )
         else:
             hf_folder = model_name_or_path
 
@@ -219,8 +264,10 @@ class DefaultModelLoader(BaseModelLoader):
         return hf_folder, hf_weights_files, use_safetensors
 
     def _get_weights_iterator(
-        self, model_name_or_path: str, revision: Optional[str],
-        fall_back_to_pt: bool
+        self,
+        model_name_or_path: str,
+        revision: Optional[str],
+        fall_back_to_pt: bool,
     ) -> Generator[Tuple[str, torch.Tensor], None, None]:
         """Get an iterator for the model weights based on the load format."""
         hf_folder, hf_weights_files, use_safetensors = self._prepare_weights(
@@ -229,8 +276,11 @@ class DefaultModelLoader(BaseModelLoader):
             # Currently np_cache only support *.bin checkpoints
             assert use_safetensors is False
             weights_iterator = np_cache_weights_iterator(
-                model_name_or_path, self.load_config.download_dir, hf_folder,
-                hf_weights_files)
+                model_name_or_path,
+                self.load_config.download_dir,
+                hf_folder,
+                hf_weights_files,
+            )
         elif use_safetensors:
             weights_iterator = safetensors_weights_iterator(hf_weights_files)
         else:
@@ -249,25 +299,36 @@ class DefaultModelLoader(BaseModelLoader):
             weights_iterator = _xla_weights_iterator(weights_iterator)
         return weights_iterator
 
-    def load_model(self, *, model_config: ModelConfig,
-                   device_config: DeviceConfig,
-                   lora_config: Optional[LoRAConfig],
-                   vision_language_config: Optional[VisionLanguageConfig],
-                   parallel_config: ParallelConfig,
-                   scheduler_config: SchedulerConfig,
-                   cache_config: CacheConfig) -> nn.Module:
+    def load_model(
+        self,
+        *,
+        model_config: ModelConfig,
+        device_config: DeviceConfig,
+        lora_config: Optional[LoRAConfig],
+        vision_language_config: Optional[VisionLanguageConfig],
+        audio_language_config: Optional[AudioLanguageConfig],
+        parallel_config: ParallelConfig,
+        scheduler_config: SchedulerConfig,
+        cache_config: CacheConfig,
+    ) -> nn.Module:
         with set_default_torch_dtype(model_config.dtype):
             with torch.device(device_config.device):
-                model = _initialize_model(model_config, self.load_config,
-                                          lora_config, vision_language_config,
-                                          cache_config)
+                model = _initialize_model(
+                    model_config,
+                    self.load_config,
+                    lora_config,
+                    vision_language_config,
+                    audio_language_config,
+                    cache_config,
+                )
             model.load_weights(
-                self._get_weights_iterator(model_config.model,
-                                           model_config.revision,
-                                           fall_back_to_pt=getattr(
-                                               model,
-                                               "fall_back_to_pt_during_load",
-                                               True)), )
+                self._get_weights_iterator(
+                    model_config.model,
+                    model_config.revision,
+                    fall_back_to_pt=getattr(model,
+                                            "fall_back_to_pt_during_load",
+                                            True),
+                ), )
 
             for _, module in model.named_modules():
                 quant_method = getattr(module, "quant_method", None)
@@ -289,18 +350,26 @@ class DummyModelLoader(BaseModelLoader):
             raise ValueError(f"Model loader extra config is not supported for "
                              f"load format {load_config.load_format}")
 
-    def load_model(self, *, model_config: ModelConfig,
-                   device_config: DeviceConfig,
-                   lora_config: Optional[LoRAConfig],
-                   vision_language_config: Optional[VisionLanguageConfig],
-                   parallel_config: ParallelConfig,
-                   scheduler_config: SchedulerConfig,
-                   cache_config: CacheConfig) -> nn.Module:
+    def load_model(
+        self,
+        *,
+        model_config: ModelConfig,
+        device_config: DeviceConfig,
+        lora_config: Optional[LoRAConfig],
+        vision_language_config: Optional[VisionLanguageConfig],
+        parallel_config: ParallelConfig,
+        scheduler_config: SchedulerConfig,
+        cache_config: CacheConfig,
+    ) -> nn.Module:
         with set_default_torch_dtype(model_config.dtype):
             with torch.device(device_config.device):
-                model = _initialize_model(model_config, self.load_config,
-                                          lora_config, vision_language_config,
-                                          cache_config)
+                model = _initialize_model(
+                    model_config,
+                    self.load_config,
+                    lora_config,
+                    vision_language_config,
+                    cache_config,
+                )
             # NOTE(woosuk): For accurate performance evaluation, we assign
             # random values to the weights.
             initialize_dummy_weights(model)
@@ -324,7 +393,7 @@ class TensorizerLoader(BaseModelLoader):
         self.tensorizer_config.verify_with_parallel_config(parallel_config)
 
     def _get_weights_iterator(
-            self) -> Generator[Tuple[str, torch.Tensor], None, None]:
+        self, ) -> Generator[Tuple[str, torch.Tensor], None, None]:
         tensorizer_args = self.tensorizer_config._construct_tensorizer_args()
         return tensorizer_weights_iterator(tensorizer_args)
 
@@ -345,9 +414,13 @@ class TensorizerLoader(BaseModelLoader):
         """
         with set_default_torch_dtype(model_config.dtype):
             with torch.device(device_config.device):
-                model = _initialize_model(model_config, self.load_config,
-                                          lora_config, vision_language_config,
-                                          cache_config)
+                model = _initialize_model(
+                    model_config,
+                    self.load_config,
+                    lora_config,
+                    vision_language_config,
+                    cache_config,
+                )
 
             model.load_weights(self._get_weights_iterator())
         return model.eval()
@@ -383,30 +456,41 @@ class TensorizerLoader(BaseModelLoader):
                 model = load_with_tensorizer(tensorizer_config, **extra_kwargs)
         return model.eval()
 
-    def load_model(self, *, model_config: ModelConfig,
-                   device_config: DeviceConfig,
-                   lora_config: Optional[LoRAConfig],
-                   vision_language_config: Optional[VisionLanguageConfig],
-                   parallel_config: ParallelConfig,
-                   scheduler_config: SchedulerConfig,
-                   cache_config: CacheConfig) -> nn.Module:
+    def load_model(
+        self,
+        *,
+        model_config: ModelConfig,
+        device_config: DeviceConfig,
+        lora_config: Optional[LoRAConfig],
+        vision_language_config: Optional[VisionLanguageConfig],
+        parallel_config: ParallelConfig,
+        scheduler_config: SchedulerConfig,
+        cache_config: CacheConfig,
+    ) -> nn.Module:
         self._verify_config(model_config, parallel_config)
 
         if parallel_config.tensor_parallel_size > 1:
             from vllm.distributed import get_tensor_model_parallel_rank
-            self.tensorizer_config.tensorizer_uri = \
-                self.tensorizer_config.tensorizer_uri \
-                    % get_tensor_model_parallel_rank()
+
+            self.tensorizer_config.tensorizer_uri = (
+                self.tensorizer_config.tensorizer_uri %
+                get_tensor_model_parallel_rank())
 
         if is_vllm_tensorized(self.tensorizer_config):
-            return self._load_model_serialized(model_config, device_config,
-                                               lora_config,
-                                               vision_language_config,
-                                               cache_config)
-        return self._load_model_serialized_cpu(model_config, device_config,
-                                               lora_config,
-                                               vision_language_config,
-                                               cache_config)
+            return self._load_model_serialized(
+                model_config,
+                device_config,
+                lora_config,
+                vision_language_config,
+                cache_config,
+            )
+        return self._load_model_serialized_cpu(
+            model_config,
+            device_config,
+            lora_config,
+            vision_language_config,
+            cache_config,
+        )
 
     @staticmethod
     def save_model(
@@ -441,13 +525,13 @@ class ShardedStateLoader(BaseModelLoader):
 
     @staticmethod
     def _filter_subtensors(
-            tensors: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        tensors: Dict[str, torch.Tensor], ) -> Dict[str, torch.Tensor]:
         """
         Filter out all tensors that share the same memory or a subset of the
         memory of another tensor.
         """
-        same_storage_groups: Dict[Any, List[Tuple[
-            str, torch.Tensor]]] = collections.defaultdict(list)
+        same_storage_groups: Dict[Any, List[Tuple[str, torch.Tensor]]] = (
+            collections.defaultdict(list))
         for key, tensor in tensors.items():
             if tensor.numel():
                 ptr = tensor.untyped_storage().data_ptr()
@@ -481,17 +565,24 @@ class ShardedStateLoader(BaseModelLoader):
             return model_name_or_path
         else:
             allow_patterns = ["*.safetensors"]
-            return download_weights_from_hf(model_name_or_path,
-                                            self.load_config.download_dir,
-                                            allow_patterns, revision)
+            return download_weights_from_hf(
+                model_name_or_path,
+                self.load_config.download_dir,
+                allow_patterns,
+                revision,
+            )
 
-    def load_model(self, *, model_config: ModelConfig,
-                   device_config: DeviceConfig,
-                   lora_config: Optional[LoRAConfig],
-                   vision_language_config: Optional[VisionLanguageConfig],
-                   parallel_config: ParallelConfig,
-                   scheduler_config: SchedulerConfig,
-                   cache_config: CacheConfig) -> nn.Module:
+    def load_model(
+        self,
+        *,
+        model_config: ModelConfig,
+        device_config: DeviceConfig,
+        lora_config: Optional[LoRAConfig],
+        vision_language_config: Optional[VisionLanguageConfig],
+        parallel_config: ParallelConfig,
+        scheduler_config: SchedulerConfig,
+        cache_config: CacheConfig,
+    ) -> nn.Module:
         from safetensors.torch import safe_open
 
         from vllm.distributed import get_tensor_model_parallel_rank
@@ -501,9 +592,13 @@ class ShardedStateLoader(BaseModelLoader):
 
         with set_default_torch_dtype(model_config.dtype):
             with torch.device(device_config.device):
-                model = _initialize_model(model_config, self.load_config,
-                                          lora_config, vision_language_config,
-                                          cache_config)
+                model = _initialize_model(
+                    model_config,
+                    self.load_config,
+                    lora_config,
+                    vision_language_config,
+                    cache_config,
+                )
             rank = get_tensor_model_parallel_rank()
             pattern = os.path.join(
                 local_model_path,
@@ -531,8 +626,11 @@ class ShardedStateLoader(BaseModelLoader):
                         if tensor.shape != param_shape:
                             logger.warning(
                                 "loading tensor of shape %s into "
-                                "parameter '%s' of shape %s", tensor.shape,
-                                key, param_shape)
+                                "parameter '%s' of shape %s",
+                                tensor.shape,
+                                key,
+                                param_shape,
+                            )
                         param_data.copy_(tensor)
                         state_dict.pop(key)
             if state_dict:
@@ -550,6 +648,7 @@ class ShardedStateLoader(BaseModelLoader):
         from safetensors.torch import save_file
 
         from vllm.distributed import get_tensor_model_parallel_rank
+
         if pattern is None:
             pattern = ShardedStateLoader.DEFAULT_PATTERN
         rank = get_tensor_model_parallel_rank()
@@ -582,8 +681,13 @@ class BitsAndBytesModelLoader(BaseModelLoader):
     """Model loader to load model weights with BitAndBytes quantization."""
 
     default_target_modules = [
-        "gate_proj", "down_proj", "up_proj", "q_proj", "k_proj", "v_proj",
-        "o_proj"
+        "gate_proj",
+        "down_proj",
+        "up_proj",
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
     ]
 
     possible_config_file_names = ["adapter_config.json"]
@@ -633,12 +737,13 @@ class BitsAndBytesModelLoader(BaseModelLoader):
         return config_file_path
 
     def _get_weight_files(
-            self,
-            model_name_or_path: str,
-            allowed_patterns: List[str],
-            revision: Optional[str] = None) -> Tuple[List[str], str]:
-        """Retrieve weight files. Download the files if necessary. 
-        
+        self,
+        model_name_or_path: str,
+        allowed_patterns: List[str],
+        revision: Optional[str] = None,
+    ) -> Tuple[List[str], str]:
+        """Retrieve weight files. Download the files if necessary.
+
         Return the weight files and the file pattern."""
         is_local = os.path.isdir(model_name_or_path)
 
@@ -655,8 +760,11 @@ class BitsAndBytesModelLoader(BaseModelLoader):
                 matching_files = fnmatch.filter(repo_files, pattern)
                 if matching_files:
                     hf_folder = download_weights_from_hf(
-                        model_name_or_path, self.load_config.download_dir,
-                        [pattern], revision)
+                        model_name_or_path,
+                        self.load_config.download_dir,
+                        [pattern],
+                        revision,
+                    )
                     return glob.glob(os.path.join(hf_folder, pattern)), pattern
 
         raise RuntimeError(
@@ -691,6 +799,7 @@ class BitsAndBytesModelLoader(BaseModelLoader):
         # only load the bitsandbytes module when needed
         try:
             import bitsandbytes
+
             if bitsandbytes.__version__ < "0.42.0":
                 raise ImportError("bitsandbytes version is wrong. Please "
                                   "install bitsandbytes>=0.42.0.")
@@ -720,7 +829,8 @@ class BitsAndBytesModelLoader(BaseModelLoader):
                         processed_weight, quant_state = quantize_4bit(
                             loaded_weight,
                             compress_statistics=True,
-                            quant_type="nf4")
+                            quant_type="nf4",
+                        )
 
                     quant_state_dict[weight_name] = quant_state
                 else:
@@ -732,12 +842,12 @@ class BitsAndBytesModelLoader(BaseModelLoader):
 
     def _load_weights(self, model_config: ModelConfig,
                       model: nn.Module) -> None:
-        if not hasattr(model, 'load_weights'):
+        if not hasattr(model, "load_weights"):
             raise AttributeError(
                 "The required method 'load_weights' is not defined in class"
                 f" {type(self).__name__}.")
 
-        if not hasattr(model, 'bitsandbytes_stacked_params_mapping'):
+        if not hasattr(model, "bitsandbytes_stacked_params_mapping"):
             raise AttributeError(
                 f"Model {type(self).__name__} does not support BitsAndBytes "
                 "quantization yet.")
@@ -758,7 +868,8 @@ class BitsAndBytesModelLoader(BaseModelLoader):
 
             shard_index = 0
             for shard_name, (
-                    weight_name, index
+                    weight_name,
+                    index,
             ) in model.bitsandbytes_stacked_params_mapping.items():
                 if shard_name in quant_param_name:
                     shard_index = index
@@ -789,24 +900,32 @@ class BitsAndBytesModelLoader(BaseModelLoader):
 
                 num_elements = [0] * len(quant_states)
                 for seq, quant_state in enumerate(quant_states.items()):
-                    num_elements[seq] = math.prod(
-                        quant_state[1].shape) // pack_ratio
+                    num_elements[seq] = (math.prod(quant_state[1].shape) //
+                                         pack_ratio)
 
                 offsets = np.concatenate(([0], np.cumsum(num_elements)))
                 set_weight_attrs(param, {"bnb_shard_offsets": offsets})
 
-    def load_model(self, *, model_config: ModelConfig,
-                   device_config: DeviceConfig,
-                   lora_config: Optional[LoRAConfig],
-                   vision_language_config: Optional[VisionLanguageConfig],
-                   parallel_config: ParallelConfig,
-                   scheduler_config: SchedulerConfig,
-                   cache_config: CacheConfig) -> nn.Module:
+    def load_model(
+        self,
+        *,
+        model_config: ModelConfig,
+        device_config: DeviceConfig,
+        lora_config: Optional[LoRAConfig],
+        vision_language_config: Optional[VisionLanguageConfig],
+        parallel_config: ParallelConfig,
+        scheduler_config: SchedulerConfig,
+        cache_config: CacheConfig,
+    ) -> nn.Module:
         with set_default_torch_dtype(model_config.dtype):
             with torch.device(device_config.device):
-                model = _initialize_model(model_config, self.load_config,
-                                          lora_config, vision_language_config,
-                                          cache_config)
+                model = _initialize_model(
+                    model_config,
+                    self.load_config,
+                    lora_config,
+                    vision_language_config,
+                    cache_config,
+                )
 
                 self._load_weights(model_config, model)
 

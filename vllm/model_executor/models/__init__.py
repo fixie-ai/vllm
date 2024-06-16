@@ -33,8 +33,10 @@ _GENERATION_MODELS = {
     "LlamaForCausalLM": ("llama", "LlamaForCausalLM"),
     "LlavaForConditionalGeneration":
     ("llava", "LlavaForConditionalGeneration"),
-    "LlavaNextForConditionalGeneration":
-    ("llava_next", "LlavaNextForConditionalGeneration"),
+    "LlavaNextForConditionalGeneration": (
+        "llava_next",
+        "LlavaNextForConditionalGeneration",
+    ),
     # For decapoda-research/llama-*
     "LLaMAForCausalLM": ("llama", "LlamaForCausalLM"),
     "MistralForCausalLM": ("llama", "LlamaForCausalLM"),
@@ -59,6 +61,7 @@ _GENERATION_MODELS = {
     "ArcticForCausalLM": ("arctic", "ArcticForCausalLM"),
     "XverseForCausalLM": ("xverse", "XverseForCausalLM"),
     "Phi3SmallForCausalLM": ("phi3_small", "Phi3SmallForCausalLM"),
+    "UltravoxModel": ("ultravox", "UltravoxModel"),
 }
 
 _EMBEDDING_MODELS = {
@@ -102,7 +105,9 @@ class ModelRegistry:
             if model_arch in _ROCM_PARTIALLY_SUPPORTED_MODELS:
                 logger.warning(
                     "Model architecture %s is partially supported by ROCm: %s",
-                    model_arch, _ROCM_PARTIALLY_SUPPORTED_MODELS[model_arch])
+                    model_arch,
+                    _ROCM_PARTIALLY_SUPPORTED_MODELS[model_arch],
+                )
 
         module_name, model_cls_name = _MODELS[model_arch]
         module = importlib.import_module(
@@ -118,8 +123,10 @@ class ModelRegistry:
         if model_arch in _MODELS:
             logger.warning(
                 "Model architecture %s is already registered, and will be "
-                "overwritten by the new model class %s.", model_arch,
-                model_cls.__name__)
+                "overwritten by the new model class %s.",
+                model_arch,
+                model_cls.__name__,
+            )
         global _OOT_MODELS
         _OOT_MODELS[model_arch] = model_cls
 

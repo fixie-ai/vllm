@@ -1,4 +1,5 @@
 """Sequence and its related classes."""
+
 import copy
 import enum
 from abc import ABC, abstractmethod
@@ -27,6 +28,7 @@ class Logprob:
         rank: The vocab rank of chosen token (>=1)
         decoded_token: The decoded chosen token index
     """
+
     logprob: float
     rank: Optional[int] = None
     decoded_token: Optional[str] = None
@@ -41,6 +43,7 @@ SampleLogprobs = List[Dict[int, Logprob]]
 
 class SequenceStatus(enum.Enum):
     """Status of a sequence."""
+
     WAITING = enum.auto()
     RUNNING = enum.auto()
     SWAPPED = enum.auto()
@@ -92,6 +95,7 @@ class RequestMetrics:
         time_in_queue: The time the request spent in the queue.
         finished_time: The time when the request was finished.
     """
+
     arrival_time: float
     last_token_time: float
     first_scheduled_time: Optional[float]
@@ -152,8 +156,10 @@ class SequenceData:
         """Get prefix tokens, and make the return value hashable"""
         prompt_length = len(self.prompt_token_ids)
         if num_tokens > prompt_length:
-            return (self._prompt_token_ids_tuple,
-                    tuple(self.output_token_ids[:num_tokens - prompt_length]))
+            return (
+                self._prompt_token_ids_tuple,
+                tuple(self.output_token_ids[:num_tokens - prompt_length]),
+            )
         else:
             return (self._prompt_token_ids_tuple[:num_tokens], None)
 
@@ -165,7 +171,9 @@ class SequenceData:
         """Update number of tokens computed so far."""
         self._num_computed_tokens += num_new_computed_tokens
         assert self._num_computed_tokens <= self.get_len(), (
-            self._num_computed_tokens, self.get_len())
+            self._num_computed_tokens,
+            self.get_len(),
+        )
         # If all tokens are computed, it means it is in decoding phase.
         if self.get_num_uncomputed_tokens() == 0:
             self._stage = SequenceStage.DECODE
@@ -267,8 +275,8 @@ class Sequence:
     def get_output_text_to_return(self, buffer_length: int):
         # We return the full output text if the sequence is finished.
         truncate = buffer_length and not self.is_finished()
-        return self.output_text[:-buffer_length] if truncate else (
-            self.output_text)
+        return (self.output_text[:-buffer_length] if truncate else
+                (self.output_text))
 
     def hash_of_block(self, logical_idx: int) -> int:
         # TODO This can produce incorrect hash when block size > prompt size
@@ -344,10 +352,12 @@ class Sequence:
     def get_cumulative_logprob(self) -> float:
         return self.data.cumulative_logprob
 
-    def get_beam_search_score(self,
-                              length_penalty: float = 1.0,
-                              seq_len: Optional[int] = None,
-                              eos_token_id: Optional[int] = None) -> float:
+    def get_beam_search_score(
+        self,
+        length_penalty: float = 1.0,
+        seq_len: Optional[int] = None,
+        eos_token_id: Optional[int] = None,
+    ) -> float:
         """Calculate the beam search score with length penalty.
 
         Adapted from
@@ -430,11 +440,13 @@ class SequenceGroup:
         self.request_id = request_id
         self.seqs_dict = {seq.seq_id: seq for seq in seqs}
         self.sampling_params = sampling_params
-        self.metrics = RequestMetrics(arrival_time=arrival_time,
-                                      last_token_time=arrival_time,
-                                      first_scheduled_time=None,
-                                      first_token_time=None,
-                                      time_in_queue=None)
+        self.metrics = RequestMetrics(
+            arrival_time=arrival_time,
+            last_token_time=arrival_time,
+            first_scheduled_time=None,
+            first_token_time=None,
+            time_in_queue=None,
+        )
         self.lora_request = lora_request
         self.prompt_logprobs: Optional[PromptLogprobs] = None
         self.state = SequenceGroupState()
@@ -520,9 +532,9 @@ class SequenceGroup:
         self,
         status: Optional[SequenceStatus] = None,
     ) -> List[Sequence]:
-        return list(self.seqs_dict.values()) if status is None else [
+        return (list(self.seqs_dict.values()) if status is None else [
             seq for seq in self.seqs_dict.values() if seq.status == status
-        ]
+        ])
 
     def is_encoder_decoder(self) -> bool:
         return self.encoder_seq is not None
@@ -614,7 +626,7 @@ class SequenceGroupMetadata:
         state: Internal state tied to this sequence group.
         multi_modal_data: Multi modal data.
         encoder_seq_data: Optional sequence data for encoder prompt
-                          (SequenceGroup.encoder_seq). Should be None 
+                          (SequenceGroup.encoder_seq). Should be None
                           unless you are working with an encoder/decoder
                           model.
         cross_block_table: Optional cross-attention block table associated
@@ -801,12 +813,11 @@ class SamplerOutput:
         return len(self.outputs)
 
     def __eq__(self, other: object):
-        return isinstance(other,
-                          self.__class__) and self.outputs == other.outputs
+        return (isinstance(other, self.__class__)
+                and self.outputs == other.outputs)
 
     def __repr__(self) -> str:
-        """Show the shape of a tensor instead of its values to reduce noise.
-        """
+        """Show the shape of a tensor instead of its values to reduce noise."""
         sampled_token_probs_repr = ("None" if self.sampled_token_probs is None
                                     else self.sampled_token_probs.shape)
         sampled_token_ids_repr = ("None" if self.sampled_token_ids is None else
@@ -821,6 +832,7 @@ class SamplerOutput:
 @dataclass
 class PoolerOutput:
     """The output from a pooling operation in the embedding model."""
+
     outputs: List[EmbeddingSequenceGroupOutput]
 
     spec_decode_worker_metrics: Optional["SpecDecodeWorkerMetrics"] = None
@@ -835,13 +847,14 @@ class PoolerOutput:
         return len(self.outputs)
 
     def __eq__(self, other: object):
-        return isinstance(other,
-                          self.__class__) and self.outputs == other.outputs
+        return (isinstance(other, self.__class__)
+                and self.outputs == other.outputs)
 
 
 @dataclass
 class ExecuteModelRequest:
     """The model execution request."""
+
     # The sequence group metadata list.
     seq_group_metadata_list: List[SequenceGroupMetadata]
     # Blocks to swap in. List of CPU -> GPU block number.
