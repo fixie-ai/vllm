@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y \
     unzip \
     nvidia-cuda-toolkit \
     tmux \
+    ccache \
  && rm -rf /var/lib/apt/lists/*
 
 ### Mount Point ###
@@ -97,7 +98,9 @@ RUN python3 -m pip install --upgrade pip numba
 # make sure punica kernels are built (for LoRA)
 ENV VLLM_INSTALL_PUNICA_KERNELS=1
 
-RUN --mount=type=cache,target=/root/.cache/pip \
+ENV CCACHE_DIR=/root/.cache/ccache
+RUN --mount=type=cache,target=/root/.cache/ccache \
+    --mount=type=cache,target=/root/.cache/pip \
     pip install -U -r requirements-rocm.txt \
     && patch /opt/rocm/include/hip/amd_detail/amd_hip_bf16.h ./rocm_patch/rocm_bf16.patch \
     && python3 setup.py install \

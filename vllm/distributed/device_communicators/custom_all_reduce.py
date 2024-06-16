@@ -9,6 +9,7 @@ import vllm.envs as envs
 from vllm.distributed.parallel_state import (
     get_local_rank, get_tensor_model_parallel_cpu_group)
 from vllm.logger import init_logger
+from vllm.utils import cuda_device_count_stateless
 
 try:
     import pynvml
@@ -136,7 +137,7 @@ class CustomAllreduce:
         if cuda_visible_devices:
             device_ids = list(map(int, cuda_visible_devices.split(",")))
         else:
-            device_ids = list(range(torch.cuda.device_count()))
+            device_ids = list(range(cuda_device_count_stateless()))
 
         physical_device_id = device_ids[device.index]
         tensor = torch.tensor([physical_device_id],

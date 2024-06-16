@@ -86,6 +86,7 @@ Documentation
    serving/env_vars
    serving/usage_stats
    serving/integrations
+   serving/tensorizer
 
 .. toctree::
    :maxdepth: 1
