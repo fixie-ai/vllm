@@ -41,7 +41,7 @@ def run_ultravox():
     # These frames will get stacked 8 high with a 2-frame stride, so we divide by 16
     # to get the number of audio embeddings.
     audio_num_tokens = math.ceil(audio_values.shape[2] / 16)
-    prompt = 'You are Albert Einstein. Respond to the following audio:\n' + '<|audio|>'
+    prompt = 'You are an AI model that can understand speech. Listen to the audio and respond:\n' + '<|audio|>'
     prompt = prompt.replace("<|audio|>", '<|reserved_special_token_0|>' * audio_num_tokens)
     text_input = tokenizer.apply_chat_template(conversation=[{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True)    
     
