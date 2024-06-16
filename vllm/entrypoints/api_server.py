@@ -31,6 +31,7 @@ TIMEOUT_KEEP_ALIVE = 5  # seconds.
 app = FastAPI()
 engine = None
 
+
 def make_audio_data(prompt: str, audio: str) -> Tuple[str, MultiModalData]:
     audio_bytes = base64.b64decode(audio)
     audio_tensor, sr = torchaudio.load(io.BytesIO(audio_bytes))
@@ -38,7 +39,9 @@ def make_audio_data(prompt: str, audio: str) -> Tuple[str, MultiModalData]:
     audio_tensor = transform(audio_tensor).to(torch.float16)
     audio_num_tokens = math.ceil(audio_tensor.shape[1] / 16000 * 6.2375)
     prompt = prompt.replace("<|audio|>", "<|audio|>" * audio_num_tokens)
-    return prompt, MultiModalData(type=MultiModalData.Type.AUDIO, data=audio_tensor)
+    return prompt, MultiModalData(type=MultiModalData.Type.AUDIO,
+                                  data=audio_tensor)
+
 
 @app.get("/health")
 async def health() -> Response:
@@ -57,16 +60,19 @@ async def generate(request: Request) -> Response:
     """
     request_dict = await request.json()
     prompt = request_dict.pop("prompt")
-    stream = request_dict.pop("stream", False)    
+    stream = request_dict.pop("stream", False)
     multi_modal_data = None
     audio = request_dict.pop("audio", None)
     if audio:
         prompt, multi_modal_data = make_audio_data(prompt, audio)
-    sampling_params = SamplingParams(**request_dict)    
+    sampling_params = SamplingParams(**request_dict)
     request_id = random_uuid()
 
     assert engine is not None
-    results_generator = engine.generate(prompt, sampling_params, request_id, multi_modal_data=multi_modal_data)
+    results_generator = engine.generate(prompt,
+                                        sampling_params,
+                                        request_id,
+                                        multi_modal_data=multi_modal_data)
 
     # Streaming case
     async def stream_results() -> AsyncGenerator[bytes, None]:

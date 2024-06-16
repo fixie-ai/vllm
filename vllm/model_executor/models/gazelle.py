@@ -17,7 +17,6 @@
 
 from typing import Any, Iterable, List, Optional, Tuple, Union
 
-
 import torch
 import torch.utils.checkpoint
 from torch import nn
@@ -42,7 +41,6 @@ from vllm.model_executor.layers.quantization.base_config import (
 from vllm.model_executor.layers.sampler import Sampler
 from vllm.model_executor.layers.vocab_parallel_embedding import ParallelLMHead
 
-
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import SamplerOutput
 
@@ -51,20 +49,16 @@ _KEYS_TO_MODIFY_MAPPING = {
     "language_model.model": "language_model",
 }
 
-
 logger = logging.get_logger(__name__)
 
 
 def _merge_audio_embeddings(input_ids: torch.Tensor,
-                             inputs_embeds: torch.Tensor,
-                             audio_embeddings: torch.Tensor,
-                             audio_token_id: int):
+                            inputs_embeds: torch.Tensor,
+                            audio_embeddings: torch.Tensor,
+                            audio_token_id: int):
     """In place merges in vision_embeddings with inputs_embeds."""
     mask = (input_ids == audio_token_id)
-    inputs_embeds[mask] = audio_embeddings.view(-1,
-                                                 audio_embeddings.shape[-1])
-
-
+    inputs_embeds[mask] = audio_embeddings.view(-1, audio_embeddings.shape[-1])
 
 
 class GazelleConfig(PretrainedConfig):
@@ -144,23 +138,21 @@ class GazelleConfig(PretrainedConfig):
         self.stack_factor = stack_factor
 
         if isinstance(self.text_config, dict):
-            text_config["model_type"] = (
-                text_config["model_type"] if "model_type" in text_config else "llama"
-            )
-            self.text_config = CONFIG_MAPPING[text_config["model_type"]](**text_config)
+            text_config["model_type"] = (text_config["model_type"]
+                                         if "model_type" in text_config else
+                                         "llama")
+            self.text_config = CONFIG_MAPPING[text_config["model_type"]](
+                **text_config)
             self.vocab_size = self.text_config.vocab_size
         elif text_config is None:
             self.text_config = CONFIG_MAPPING["llama"]()
 
         if isinstance(self.audio_config, dict):
-            audio_config["model_type"] = (
-                audio_config["model_type"]
-                if "model_type" in audio_config
-                else "wav2vec2"
-            )
+            audio_config["model_type"] = (audio_config["model_type"]
+                                          if "model_type" in audio_config else
+                                          "wav2vec2")
             self.audio_config = CONFIG_MAPPING[audio_config["model_type"]](
-                **audio_config
-            )
+                **audio_config)
             self.vocab_size = self.audio_config.vocab_size
         elif audio_config is None:
             self.audio_config = CONFIG_MAPPING["wav2vec2"]()
@@ -168,9 +160,8 @@ class GazelleConfig(PretrainedConfig):
         super().__init__(**kwargs)
 
 
-
-
 class ProjectionLayer(nn.Module):
+
     def __init__(self, stack_factor: int = 8):
         super().__init__()
         # NB chua: stack_factor is the factor by which the audio embeddings are stacked
@@ -182,16 +173,15 @@ class ProjectionLayer(nn.Module):
         "Stack audio embeddings to downsample in time dimension, then pad to the nearest multiple of `stack_factor`"
         B, T, C = audio_embeds.shape
         audio_embeds = F.pad(
-            audio_embeds, (0, 0, 0, self.stack_factor - T % self.stack_factor)
-        )
+            audio_embeds, (0, 0, 0, self.stack_factor - T % self.stack_factor))
         B, T, C = audio_embeds.shape
-        audio_embeds = audio_embeds.view(
-            B, T // self.stack_factor, C * self.stack_factor
-        )
+        audio_embeds = audio_embeds.view(B, T // self.stack_factor,
+                                         C * self.stack_factor)
         return audio_embeds
 
 
 class RMSNorm(nn.Module):
+
     def __init__(self, hidden_size, eps=1e-6):
         """
         From huggingface's LlamaRMSNorm
@@ -201,7 +191,7 @@ class RMSNorm(nn.Module):
         # the default initialization here is to 1
         # however, https://arxiv.org/abs/2206.10139 shows stronger improvements initializing to smaller weights
         # we arbitrarily pick 0.4 here, seemed like good results
-        self.weight = nn.Parameter(torch.full((hidden_size,), 0.4))
+        self.weight = nn.Parameter(torch.full((hidden_size, ), 0.4))
         # self.weight = nn.Parameter(torch.ones(hidden_size))
         self.variance_epsilon = eps
 
@@ -209,30 +199,34 @@ class RMSNorm(nn.Module):
         input_dtype = hidden_states.dtype
         hidden_states = hidden_states.to(torch.float32)
         variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        hidden_states = hidden_states * torch.rsqrt(variance +
+                                                    self.variance_epsilon)
         return self.weight * hidden_states.to(input_dtype)
 
 
 class SwiGLU(nn.Module):
+
     def forward(self, x):
         x, gate = x.chunk(2, dim=-1)
         return F.silu(gate) * x
 
 
 class GazelleProjector(ProjectionLayer):
+
     def __init__(self, config: GazelleConfig):
         self.hidden_dim = config.hidden_size
         super().__init__(config.stack_factor)
-        self.ln_pre = RMSNorm(config.audio_config.hidden_size * self.stack_factor)
+        self.ln_pre = RMSNorm(config.audio_config.hidden_size *
+                              self.stack_factor)
         self.linear_1 = nn.Linear(
             config.audio_config.hidden_size * self.stack_factor,
             self.hidden_dim,
             bias=False,
         )
         self.act = SwiGLU()
-        self.linear_2 = nn.Linear(
-            self.hidden_dim // 2, config.text_config.hidden_size, bias=False
-        )
+        self.linear_2 = nn.Linear(self.hidden_dim // 2,
+                                  config.text_config.hidden_size,
+                                  bias=False)
         self.ln_post = RMSNorm(config.text_config.hidden_size)
 
     def forward(self, audio_features: torch.Tensor) -> torch.Tensor:
@@ -245,9 +239,12 @@ class GazelleProjector(ProjectionLayer):
         return hidden_states
 
 
-
 class GazelleForConditionalGeneration(nn.Module):
-    def __init__(self, config: GazelleConfig, audio_language_config: AudioLanguageConfig, quant_config: Optional["QuantizationConfig"] = None):
+
+    def __init__(self,
+                 config: GazelleConfig,
+                 audio_language_config: AudioLanguageConfig,
+                 quant_config: Optional["QuantizationConfig"] = None):
         from vllm.model_executor.models.llama import LlamaModel
         super().__init__()
         self.config = config
@@ -260,11 +257,11 @@ class GazelleForConditionalGeneration(nn.Module):
         self.multi_modal_projector = GazelleProjector(config)
         self.vocab_size = config.vocab_size
         self.quant_config = quant_config
-        
+
         if config.text_model_id is not None:
             self.language_model = AutoModelForCausalLM.from_pretrained(
-                config.text_model_id, attn_implementation=config._attn_implementation
-            )
+                config.text_model_id,
+                attn_implementation=config._attn_implementation)
         else:
             self.language_model = LlamaModel(config.text_config, quant_config)
         self.unpadded_vocab_size = config.text_config.vocab_size
@@ -276,9 +273,8 @@ class GazelleForConditionalGeneration(nn.Module):
         self.logits_processor = LogitsProcessor(self.unpadded_vocab_size,
                                                 config.vocab_size, logit_scale)
         self.sampler = Sampler()
-        self.pad_token_id = (
-            config.pad_token_id if config.pad_token_id is not None else -1
-        )
+        self.pad_token_id = (config.pad_token_id
+                             if config.pad_token_id is not None else -1)
 
     """
     def resize_token_embeddings(
@@ -294,38 +290,35 @@ class GazelleForConditionalGeneration(nn.Module):
         return model_embeds
     """
 
-    def _merge_input_ids_with_audio_features(
-        self, audio_features, inputs_embeds, input_ids, attention_mask, labels
-    ):
+    def _merge_input_ids_with_audio_features(self, audio_features,
+                                             inputs_embeds, input_ids,
+                                             attention_mask, labels):
         num_audio_samples, num_audio_patches, embed_dim = audio_features.shape
         batch_size, sequence_length = input_ids.shape
         left_padding = not torch.sum(
-            input_ids[:, -1] == torch.tensor(self.pad_token_id)
-        )
+            input_ids[:, -1] == torch.tensor(self.pad_token_id))
         # 1. Create a mask to know where special image tokens are
         special_audio_token_mask = input_ids == self.config.audio_token_index
         num_special_image_tokens = torch.sum(special_audio_token_mask, dim=-1)
         # Compute the maximum embed dimension
-        max_embed_dim = (
-            num_special_image_tokens.max() * (num_audio_patches - 1)
-        ) + sequence_length
+        max_embed_dim = (num_special_image_tokens.max() *
+                         (num_audio_patches - 1)) + sequence_length
         batch_indices, non_audio_indices = torch.where(
-            input_ids != self.config.audio_token_index
-        )
+            input_ids != self.config.audio_token_index)
 
         # 2. Compute the positions where text should be written
         # Calculate new positions for text tokens in merged audio-text sequence.
         # `special_audio_token_mask` identifies audio tokens. Each audio token will be replaced by `nb_text_tokens_per_images - 1` text tokens.
         # `torch.cumsum` computes how each audio token shifts subsequent text token positions.
         # - 1 to adjust for zero-based indexing, as `cumsum` inherently increases indices by one.
-        new_token_positions = (
-            torch.cumsum((special_audio_token_mask * (num_audio_patches - 1) + 1), -1)
-            - 1
-        )
+        new_token_positions = (torch.cumsum(
+            (special_audio_token_mask * (num_audio_patches - 1) + 1), -1) - 1)
         nb_image_pad = max_embed_dim - 1 - new_token_positions[:, -1]
         if left_padding:  # TODO FARZAD: I don't understand this
-            new_token_positions += nb_image_pad[:, None]  # offset for left padding
-        text_to_overwrite = new_token_positions[batch_indices, non_audio_indices]
+            new_token_positions += nb_image_pad[:,
+                                                None]  # offset for left padding
+        text_to_overwrite = new_token_positions[batch_indices,
+                                                non_audio_indices]
 
         # 3. Create the full embedding, already padded to the maximum position
         final_embedding = torch.zeros(
@@ -360,21 +353,22 @@ class GazelleForConditionalGeneration(nn.Module):
 
         # 4. Fill the embeddings based on the mask. If we have ["hey" "<|audio|>", "how", "are"]
         # we need to index copy on [0, 577, 578, 579] for the text and [1:576] for the audio features
-        final_embedding[batch_indices, text_to_overwrite] = inputs_embeds[
-            batch_indices, non_audio_indices
-        ]
-        final_attention_mask[batch_indices, text_to_overwrite] = attention_mask[
-            batch_indices, non_audio_indices
-        ]
+        final_embedding[batch_indices,
+                        text_to_overwrite] = inputs_embeds[batch_indices,
+                                                           non_audio_indices]
+        final_attention_mask[batch_indices,
+                             text_to_overwrite] = attention_mask[
+                                 batch_indices, non_audio_indices]
         if labels is not None:
-            final_labels[batch_indices, text_to_overwrite] = labels[
-                batch_indices, non_audio_indices
-            ]
+            final_labels[batch_indices,
+                         text_to_overwrite] = labels[batch_indices,
+                                                     non_audio_indices]
 
         # 5. Fill the embeddings corresponding to the audio. Anything that is still zeros needs filling
         audio_to_overwrite = torch.all(final_embedding == 0, dim=-1)
         audio_positions = audio_to_overwrite.to(torch.int16).cumsum(-1) - 1
-        audio_left_pad_mask = audio_positions >= nb_image_pad[:, None].to(target_device)
+        audio_left_pad_mask = audio_positions >= nb_image_pad[:, None].to(
+            target_device)
         audio_to_overwrite &= audio_left_pad_mask
 
         if audio_to_overwrite.sum() != audio_features.shape[:-1].numel():
@@ -385,14 +379,11 @@ class GazelleForConditionalGeneration(nn.Module):
             )
 
         final_embedding[audio_to_overwrite] = (
-            audio_features.contiguous()
-            .reshape(-1, embed_dim)
-            .to(target_device, dtype=final_embedding.dtype)
-        )
+            audio_features.contiguous().reshape(-1, embed_dim).to(
+                target_device, dtype=final_embedding.dtype))
         final_attention_mask |= audio_to_overwrite
         position_ids = (final_attention_mask.cumsum(-1) - 1).masked_fill_(
-            (final_attention_mask == 0), 1
-        )
+            (final_attention_mask == 0), 1)
 
         if labels is None:
             final_labels = None
@@ -461,20 +452,20 @@ class GazelleForConditionalGeneration(nn.Module):
             inputs_embeds = self.language_model.get_input_embeddings(input_ids)
             if self.audio_tower is not None:
                 # TODO(xwjiang): Maybe port minimal CLIPVisionModel over.
-                audio_features = self.audio_tower(audio_input).last_hidden_state
+                audio_features = self.audio_tower(
+                    audio_input).last_hidden_state
                 #audio_outputs = audio_outputs.to(inputs_embeds.dtype)
-                                                  
-                #audio_features = audio_outputs.hidden_states[-1] ####                    
-                # Copied from https://github.com/huggingface/transformers/blob/39c3c0a72af6fbda5614dde02ff236069bb79827/src/transformers/models/llava/modeling_llava.py#L421  # noqa               
+
+                #audio_features = audio_outputs.hidden_states[-1] ####
+                # Copied from https://github.com/huggingface/transformers/blob/39c3c0a72af6fbda5614dde02ff236069bb79827/src/transformers/models/llava/modeling_llava.py#L421  # noqa
             else:
                 audio_features = audio_input
             logger.info(f"audio_features: {audio_features.shape}")
             audio_embeddings = self.multi_modal_projector(audio_features)
             logger.info(f"audio_embs: {audio_embeddings.shape}")
             logger.info(f"input_embs: {inputs_embeds.shape}")
-            _merge_audio_embeddings(
-                input_ids, inputs_embeds, audio_embeddings,
-                self.audio_language_config.audio_token_id)
+            _merge_audio_embeddings(input_ids, inputs_embeds, audio_embeddings,
+                                    self.audio_language_config.audio_token_id)
             logger.info(f"input_ids: {input_ids}")
             logger.info(f"input_embs: {inputs_embeds.shape}")
             input_ids = None
@@ -501,7 +492,6 @@ class GazelleForConditionalGeneration(nn.Module):
     ) -> Optional[SamplerOutput]:
         next_tokens = self.sampler(logits, sampling_metadata)
         return next_tokens
-    
 
     def prepare_inputs_for_generation(
         self,
@@ -523,24 +513,22 @@ class GazelleForConditionalGeneration(nn.Module):
             # 1 - If the length of the attention_mask exceeds the length of input_ids, then we are in a setting where
             # some of the inputs are exclusively passed as part of the cache (e.g. when passing input_embeds as
             # input)
-            if (
-                attention_mask is not None
-                and attention_mask.shape[1] > input_ids.shape[1]
-            ):
-                input_ids = input_ids[:, -(attention_mask.shape[1] - past_length) :]
+            if (attention_mask is not None
+                    and attention_mask.shape[1] > input_ids.shape[1]):
+                input_ids = input_ids[:, -(attention_mask.shape[1] -
+                                           past_length):]
             # 2 - If the past_length is smaller than input_ids', then input_ids holds all input tokens. We can discard
             # input_ids based on the past_length.
             elif past_length < input_ids.shape[1]:
                 input_ids = input_ids[:, past_length:]
             # 3 - Otherwise (past_length >= input_ids.shape[1]), let's assume input_ids only has unprocessed tokens.
             elif self.config.audio_token_index in input_ids:
-                input_ids = input_ids[:, input_ids.shape[1] - 1 :]
+                input_ids = input_ids[:, input_ids.shape[1] - 1:]
             # If the cache has seen more tokens than it can hold, then the cache has a size limit. Let's discard the
             # older attention values, as their corresponding values are not part of the input.
             if cache_length < past_length and attention_mask is not None:
-                attention_mask = attention_mask[
-                    :, -(cache_length + input_ids.shape[1]) :
-                ]
+                attention_mask = attention_mask[:, -(cache_length +
+                                                     input_ids.shape[1]):]
 
         position_ids = kwargs.get("position_ids", None)
         if attention_mask is not None and position_ids is None:
@@ -548,7 +536,7 @@ class GazelleForConditionalGeneration(nn.Module):
             position_ids = attention_mask.long().cumsum(-1) - 1
             position_ids.masked_fill_(attention_mask == 0, 1)
             if past_key_values:
-                position_ids = position_ids[:, -input_ids.shape[1] :]
+                position_ids = position_ids[:, -input_ids.shape[1]:]
 
         # if `inputs_embeds` are passed, we only want to use them in the 1st generation step
         if inputs_embeds is not None and past_key_values is None:
@@ -556,21 +544,17 @@ class GazelleForConditionalGeneration(nn.Module):
         else:
             model_inputs = {"input_ids": input_ids}
 
-        model_inputs.update(
-            {
-                "position_ids": position_ids,
-                "past_key_values": past_key_values,
-                "use_cache": kwargs.get("use_cache"),
-                "attention_mask": attention_mask,
-                "audio_values": audio_values,
-            }
-        )
+        model_inputs.update({
+            "position_ids": position_ids,
+            "past_key_values": past_key_values,
+            "use_cache": kwargs.get("use_cache"),
+            "attention_mask": attention_mask,
+            "audio_values": audio_values,
+        })
         return model_inputs
 
     def _reorder_cache(self, *args, **kwargs):
         return self.language_model._reorder_cache(*args, **kwargs)
-    
-
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
         from vllm.model_executor.model_loader.weight_utils import default_weight_loader
@@ -584,9 +568,9 @@ class GazelleForConditionalGeneration(nn.Module):
             ("gate_up_proj", "gate_proj", 0),
             ("gate_up_proj", "up_proj", 1),
         ]
-        params_dict = dict(self.named_parameters())    
+        params_dict = dict(self.named_parameters())
         #for key in params_dict.keys():
-        #    logger.info(f"param: {key}")        
+        #    logger.info(f"param: {key}")
         for name, loaded_weight in weights:
             #logger.info(f"weight: {name}")
             if "rotary_emb.inv_freq" in name:
@@ -604,7 +588,7 @@ class GazelleForConditionalGeneration(nn.Module):
                 for (param_name, weight_name,
                      shard_id) in stacked_params_mapping:
                     if weight_name not in name:
-                        continue                    
+                        continue
                     new_name = name.replace(weight_name, param_name)
                     param = params_dict[new_name]
                     weight_loader = param.weight_loader
@@ -617,7 +601,6 @@ class GazelleForConditionalGeneration(nn.Module):
                 weight_loader = getattr(param, "weight_loader",
                                         default_weight_loader)
                 weight_loader(param, loaded_weight)
-
 
 
 # coding=utf-8
@@ -668,9 +651,8 @@ class GazelleProcessor(ProcessorMixin):
 
     def __call__(
         self,
-        text: Union[
-            TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]
-        ] = None,
+        text: Union[TextInput, PreTokenizedInput, List[TextInput],
+                    List[PreTokenizedInput]] = None,
         audio=None,
         text_padding: Union[bool, str, PaddingStrategy] = False,
         text_truncation: Union[bool, str, TruncationStrategy] = None,
@@ -750,7 +732,9 @@ class GazelleProcessor(ProcessorMixin):
                 truncation=text_truncation,
                 max_length=text_max_length,
             )
-            return BatchFeature(data={**text_inputs, "audio_values": audio_values})
+            return BatchFeature(data={
+                **text_inputs, "audio_values": audio_values
+            })
         else:
             return BatchFeature(data={"audio_values": audio_values})
 
@@ -775,6 +759,5 @@ class GazelleProcessor(ProcessorMixin):
     def model_input_names(self):
         tokenizer_input_names = self.tokenizer.model_input_names
         audio_processor_input_names = self.audio_processor_class.model_input_names
-        return list(dict.fromkeys(tokenizer_input_names + audio_processor_input_names))
-    
-
+        return list(
+            dict.fromkeys(tokenizer_input_names + audio_processor_input_names))

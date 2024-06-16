@@ -45,39 +45,30 @@ class WhisperEncoder(whisper.WhisperEncoder):
         output_hidden_states=None,
         return_dict=None,
     ):
-        expected_seq_length = (
-            self.config.max_source_positions
-            * self.conv1.stride[0]
-            * self.conv2.stride[0]
-        )
+        expected_seq_length = (self.config.max_source_positions *
+                               self.conv1.stride[0] * self.conv2.stride[0])
         if input_features.shape[-1] > expected_seq_length:
             raise ValueError(
                 f"Whisper expects the mel input features to be of length {expected_seq_length} or less, but found {input_features.shape[-1]}. Make sure to pad the input mel features to {expected_seq_length}."
             )
 
-        output_attentions = (
-            output_attentions
-            if output_attentions is not None
-            else self.config.output_attentions
-        )
-        output_hidden_states = (
-            output_hidden_states
-            if output_hidden_states is not None
-            else self.config.output_hidden_states
-        )
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
+        output_attentions = (output_attentions if output_attentions is not None
+                             else self.config.output_attentions)
+        output_hidden_states = (output_hidden_states
+                                if output_hidden_states is not None else
+                                self.config.output_hidden_states)
+        return_dict = (return_dict if return_dict is not None else
+                       self.config.use_return_dict)
         inputs_embeds = nn.functional.gelu(self.conv1(input_features))
         inputs_embeds = nn.functional.gelu(self.conv2(inputs_embeds))
 
         inputs_embeds = inputs_embeds.permute(0, 2, 1)
-        embed_pos = self.embed_positions.weight[: inputs_embeds.size(-2)]
+        embed_pos = self.embed_positions.weight[:inputs_embeds.size(-2)]
 
         hidden_states = inputs_embeds + embed_pos
-        hidden_states = nn.functional.dropout(
-            hidden_states, p=self.dropout, training=self.training
-        )
+        hidden_states = nn.functional.dropout(hidden_states,
+                                              p=self.dropout,
+                                              training=self.training)
 
         encoder_states = () if output_hidden_states else None
         all_attentions = () if output_attentions else None
@@ -90,7 +81,7 @@ class WhisperEncoder(whisper.WhisperEncoder):
 
         for idx, encoder_layer in enumerate(self.layers):
             if output_hidden_states:
-                encoder_states = encoder_states + (hidden_states,)
+                encoder_states = encoder_states + (hidden_states, )
             # add LayerDrop (see https://arxiv.org/abs/1909.11556 for description)
             to_drop = False
             if self.training:
@@ -113,27 +104,24 @@ class WhisperEncoder(whisper.WhisperEncoder):
                     layer_outputs = encoder_layer(
                         hidden_states,
                         None,
-                        layer_head_mask=(
-                            head_mask[idx] if head_mask is not None else None
-                        ),
+                        layer_head_mask=(head_mask[idx]
+                                         if head_mask is not None else None),
                         output_attentions=output_attentions,
                     )
 
                 hidden_states = layer_outputs[0]
 
             if output_attentions:
-                all_attentions = all_attentions + (layer_outputs[1],)
+                all_attentions = all_attentions + (layer_outputs[1], )
 
         hidden_states = self.layer_norm(hidden_states)
         if output_hidden_states:
-            encoder_states = encoder_states + (hidden_states,)
+            encoder_states = encoder_states + (hidden_states, )
 
         if not return_dict:
             return tuple(
-                v
-                for v in [hidden_states, encoder_states, all_attentions]
-                if v is not None
-            )
+                v for v in [hidden_states, encoder_states, all_attentions]
+                if v is not None)
         return transformers.modeling_outputs.BaseModelOutput(
             last_hidden_state=hidden_states,
             hidden_states=encoder_states,

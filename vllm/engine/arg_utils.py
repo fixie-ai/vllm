@@ -27,7 +27,8 @@ import transformers
 from vllm.model_executor.models import ultravox
 
 transformers.AutoConfig.register("ultravox", ultravox.UltravoxConfig)
-transformers.AutoModel.register(ultravox.UltravoxConfig, ultravox.UltravoxModel)
+transformers.AutoModel.register(ultravox.UltravoxConfig,
+                                ultravox.UltravoxModel)
 
 
 def nullable_str(val: str):
@@ -126,8 +127,7 @@ class EngineArgs:
 
     @staticmethod
     def add_cli_args_for_vlm(
-        parser: argparse.ArgumentParser,
-    ) -> argparse.ArgumentParser:
+        parser: argparse.ArgumentParser, ) -> argparse.ArgumentParser:
         parser.add_argument(
             "--image-input-type",
             type=nullable_str,
@@ -147,10 +147,8 @@ class EngineArgs:
             "--image-input-shape",
             type=nullable_str,
             default=None,
-            help=(
-                "The biggest image input shape (worst for memory footprint) "
-                "given an input type. Only used for vLLM's profile_run."
-            ),
+            help=("The biggest image input shape (worst for memory footprint) "
+                  "given an input type. Only used for vLLM's profile_run."),
         )
         parser.add_argument(
             "--image-feature-size",
@@ -190,8 +188,7 @@ class EngineArgs:
 
     @staticmethod
     def add_cli_args(
-        parser: argparse.ArgumentParser,
-    ) -> argparse.ArgumentParser:
+        parser: argparse.ArgumentParser, ) -> argparse.ArgumentParser:
         """Shared CLI arguments for vLLM engine."""
 
         # Model arguments
@@ -292,7 +289,9 @@ class EngineArgs:
             "--dtype",
             type=str,
             default=EngineArgs.dtype,
-            choices=["auto", "half", "float16", "bfloat16", "float", "float32"],
+            choices=[
+                "auto", "half", "float16", "bfloat16", "float", "float32"
+            ],
             help="Data type for model weights and activations.\n\n"
             '* "auto" will use FP16 precision for FP32 and FP16 models, and '
             "BF16 precision for BF16 models.\n"
@@ -389,7 +388,8 @@ class EngineArgs:
             type=int,
             default=EngineArgs.block_size,
             choices=[8, 16, 32],
-            help="Token block size for contiguous chunks of " "tokens.",
+            help="Token block size for contiguous chunks of "
+            "tokens.",
         )
 
         parser.add_argument(
@@ -400,7 +400,8 @@ class EngineArgs:
         parser.add_argument(
             "--disable-sliding-window",
             action="store_true",
-            help="Disables sliding window, " "capping to sliding window size",
+            help="Disables sliding window, "
+            "capping to sliding window size",
         )
         parser.add_argument(
             "--use-v2-block-manager",
@@ -449,7 +450,8 @@ class EngineArgs:
             "--max-num-batched-tokens",
             type=int,
             default=EngineArgs.max_num_batched_tokens,
-            help="Maximum number of batched tokens per " "iteration.",
+            help="Maximum number of batched tokens per "
+            "iteration.",
         )
         parser.add_argument(
             "--max-num-seqs",
@@ -461,10 +463,8 @@ class EngineArgs:
             "--max-logprobs",
             type=int,
             default=EngineArgs.max_logprobs,
-            help=(
-                "Max number of log probs to return logprobs is specified in"
-                " SamplingParams."
-            ),
+            help=("Max number of log probs to return logprobs is specified in"
+                  " SamplingParams."),
         )
         parser.add_argument(
             "--disable-log-stats",
@@ -578,56 +578,46 @@ class EngineArgs:
             "--lora-extra-vocab-size",
             type=int,
             default=EngineArgs.lora_extra_vocab_size,
-            help=(
-                "Maximum size of extra vocabulary that can be "
-                "present in a LoRA adapter (added to the base "
-                "model vocabulary)."
-            ),
+            help=("Maximum size of extra vocabulary that can be "
+                  "present in a LoRA adapter (added to the base "
+                  "model vocabulary)."),
         )
         parser.add_argument(
             "--lora-dtype",
             type=str,
             default=EngineArgs.lora_dtype,
             choices=["auto", "float16", "bfloat16", "float32"],
-            help=(
-                "Data type for LoRA. If auto, will default to "
-                "base model dtype."
-            ),
+            help=("Data type for LoRA. If auto, will default to "
+                  "base model dtype."),
         )
         parser.add_argument(
             "--long-lora-scaling-factors",
             type=nullable_str,
             default=EngineArgs.long_lora_scaling_factors,
-            help=(
-                "Specify multiple scaling factors (which can "
-                "be different from base model scaling factor "
-                "- see eg. Long LoRA) to allow for multiple "
-                "LoRA adapters trained with those scaling "
-                "factors to be used at the same time. If not "
-                "specified, only adapters trained with the "
-                "base model scaling factor are allowed."
-            ),
+            help=("Specify multiple scaling factors (which can "
+                  "be different from base model scaling factor "
+                  "- see eg. Long LoRA) to allow for multiple "
+                  "LoRA adapters trained with those scaling "
+                  "factors to be used at the same time. If not "
+                  "specified, only adapters trained with the "
+                  "base model scaling factor are allowed."),
         )
         parser.add_argument(
             "--max-cpu-loras",
             type=int,
             default=EngineArgs.max_cpu_loras,
-            help=(
-                "Maximum number of LoRAs to store in CPU memory. "
-                "Must be >= than max_num_seqs. "
-                "Defaults to max_num_seqs."
-            ),
+            help=("Maximum number of LoRAs to store in CPU memory. "
+                  "Must be >= than max_num_seqs. "
+                  "Defaults to max_num_seqs."),
         )
         parser.add_argument(
             "--fully-sharded-loras",
             action="store_true",
-            help=(
-                "By default, only half of the LoRA computation is "
-                "sharded with tensor parallelism. "
-                "Enabling this will use the fully sharded layers. "
-                "At high sequence length, max rank or "
-                "tensor parallel size, this is likely faster."
-            ),
+            help=("By default, only half of the LoRA computation is "
+                  "sharded with tensor parallelism. "
+                  "Enabling this will use the fully sharded layers. "
+                  "At high sequence length, max rank or "
+                  "tensor parallel size, this is likely faster."),
         )
         parser.add_argument(
             "--device",
@@ -658,7 +648,8 @@ class EngineArgs:
             "--speculative-model",
             type=nullable_str,
             default=EngineArgs.speculative_model,
-            help="The name of the draft model to be used in speculative decoding.",
+            help=
+            "The name of the draft model to be used in speculative decoding.",
         )
         parser.add_argument(
             "--num-speculative-tokens",
@@ -751,28 +742,22 @@ class EngineArgs:
         engine_args = cls(**{attr: getattr(args, attr) for attr in attrs})
         return engine_args
 
-    def create_engine_config(
-        self,
-    ) -> EngineConfig:
+    def create_engine_config(self, ) -> EngineConfig:
         # bitsandbytes quantization needs a specific model loader
         # so we make sure the quant method and the load format are consistent
-        if (
-            self.quantization == "bitsandbytes"
-            or self.qlora_adapter_name_or_path is not None
-        ) and self.load_format != "bitsandbytes":
+        if (self.quantization == "bitsandbytes"
+                or self.qlora_adapter_name_or_path
+                is not None) and self.load_format != "bitsandbytes":
             raise ValueError(
                 "BitsAndBytes quantization and QLoRA adapter only support "
-                f"'bitsandbytes' load format, but got {self.load_format}"
-            )
+                f"'bitsandbytes' load format, but got {self.load_format}")
 
-        if (
-            self.load_format == "bitsandbytes"
-            or self.qlora_adapter_name_or_path is not None
-        ) and self.quantization != "bitsandbytes":
+        if (self.load_format == "bitsandbytes"
+                or self.qlora_adapter_name_or_path
+                is not None) and self.quantization != "bitsandbytes":
             raise ValueError(
                 "BitsAndBytes load format and QLoRA adapter only support "
-                f"'bitsandbytes' quantization, but got {self.quantization}"
-            )
+                f"'bitsandbytes' quantization, but got {self.quantization}")
 
         device_config = DeviceConfig(device=self.device)
         model_config = ModelConfig(
@@ -828,7 +813,8 @@ class EngineArgs:
             target_dtype=self.dtype,
             speculative_model=self.speculative_model,
             num_speculative_tokens=self.num_speculative_tokens,
-            speculative_disable_by_batch_size=self.speculative_disable_by_batch_size,
+            speculative_disable_by_batch_size=self.
+            speculative_disable_by_batch_size,
             speculative_max_model_len=self.speculative_max_model_len,
             enable_chunked_prefill=self.enable_chunked_prefill,
             use_v2_block_manager=self.use_v2_block_manager,
@@ -841,41 +827,31 @@ class EngineArgs:
             max_num_seqs=self.max_num_seqs,
             max_model_len=model_config.max_model_len,
             use_v2_block_manager=self.use_v2_block_manager,
-            num_lookahead_slots=(
-                self.num_lookahead_slots
-                if speculative_config is None
-                else speculative_config.num_lookahead_slots
-            ),
+            num_lookahead_slots=(self.num_lookahead_slots
+                                 if speculative_config is None else
+                                 speculative_config.num_lookahead_slots),
             delay_factor=self.scheduler_delay_factor,
             enable_chunked_prefill=self.enable_chunked_prefill,
             embedding_mode=model_config.embedding_mode,
             preemption_mode=self.preemption_mode,
         )
-        lora_config = (
-            LoRAConfig(
-                max_lora_rank=self.max_lora_rank,
-                max_loras=self.max_loras,
-                fully_sharded_loras=self.fully_sharded_loras,
-                lora_extra_vocab_size=self.lora_extra_vocab_size,
-                long_lora_scaling_factors=self.long_lora_scaling_factors,
-                lora_dtype=self.lora_dtype,
-                max_cpu_loras=self.max_cpu_loras
-                if self.max_cpu_loras and self.max_cpu_loras > 0
-                else None,
-            )
-            if self.enable_lora
-            else None
-        )
+        lora_config = (LoRAConfig(
+            max_lora_rank=self.max_lora_rank,
+            max_loras=self.max_loras,
+            fully_sharded_loras=self.fully_sharded_loras,
+            lora_extra_vocab_size=self.lora_extra_vocab_size,
+            long_lora_scaling_factors=self.long_lora_scaling_factors,
+            lora_dtype=self.lora_dtype,
+            max_cpu_loras=self.max_cpu_loras
+            if self.max_cpu_loras and self.max_cpu_loras > 0 else None,
+        ) if self.enable_lora else None)
 
-        if (
-            self.qlora_adapter_name_or_path is not None
-            and self.qlora_adapter_name_or_path != ""
-        ):
+        if (self.qlora_adapter_name_or_path is not None
+                and self.qlora_adapter_name_or_path != ""):
             if self.model_loader_extra_config is None:
                 self.model_loader_extra_config = {}
             self.model_loader_extra_config["qlora_adapter_name_or_path"] = (
-                self.qlora_adapter_name_or_path
-            )
+                self.qlora_adapter_name_or_path)
 
         load_config = LoadConfig(
             load_format=self.load_format,
@@ -884,15 +860,11 @@ class EngineArgs:
         )
 
         if self.image_input_type:
-            if (
-                not self.image_token_id
-                or not self.image_input_shape
-                or not self.image_feature_size
-            ):
+            if (not self.image_token_id or not self.image_input_shape
+                    or not self.image_feature_size):
                 raise ValueError(
                     "Specify `image_token_id`, `image_input_shape` and "
-                    "`image_feature_size` together with `image_input_type`."
-                )
+                    "`image_feature_size` together with `image_input_type`.")
 
             if self.image_processor is None:
                 self.image_processor = self.model
@@ -908,9 +880,8 @@ class EngineArgs:
                 self.image_processor = None
 
             vision_language_config = VisionLanguageConfig(
-                image_input_type=VisionLanguageConfig.get_image_input_enum_type(
-                    self.image_input_type
-                ),
+                image_input_type=VisionLanguageConfig.
+                get_image_input_enum_type(self.image_input_type),
                 image_token_id=self.image_token_id,
                 image_input_shape=str_to_int_tuple(self.image_input_shape),
                 image_feature_size=self.image_feature_size,
@@ -921,24 +892,19 @@ class EngineArgs:
             vision_language_config = None
         if self.audio_token_id:
             audio_language_config = AudioLanguageConfig(
-                audio_token_id=self.audio_token_id
-            )
+                audio_token_id=self.audio_token_id)
         else:
             audio_language_config = None
 
         decoding_config = DecodingConfig(
-            guided_decoding_backend=self.guided_decoding_backend
-        )
+            guided_decoding_backend=self.guided_decoding_backend)
 
-        if (
-            model_config.get_sliding_window() is not None
-            and scheduler_config.chunked_prefill_enabled
-            and not scheduler_config.use_v2_block_manager
-        ):
+        if (model_config.get_sliding_window() is not None
+                and scheduler_config.chunked_prefill_enabled
+                and not scheduler_config.use_v2_block_manager):
             raise ValueError(
                 "Chunked prefill is not supported with sliding window. "
-                "Set --disable-sliding-window to disable sliding window."
-            )
+                "Set --disable-sliding-window to disable sliding window.")
 
         return EngineConfig(
             model_config=model_config,
@@ -964,9 +930,8 @@ class AsyncEngineArgs(EngineArgs):
     max_log_len: Optional[int] = None
 
     @staticmethod
-    def add_cli_args(
-        parser: argparse.ArgumentParser, async_args_only: bool = False
-    ) -> argparse.ArgumentParser:
+    def add_cli_args(parser: argparse.ArgumentParser,
+                     async_args_only: bool = False) -> argparse.ArgumentParser:
         if not async_args_only:
             parser = EngineArgs.add_cli_args(parser)
         parser.add_argument(
@@ -997,9 +962,8 @@ def _engine_args_parser():
 
 
 def _async_engine_args_parser():
-    return AsyncEngineArgs.add_cli_args(
-        argparse.ArgumentParser(), async_args_only=True
-    )
+    return AsyncEngineArgs.add_cli_args(argparse.ArgumentParser(),
+                                        async_args_only=True)
 
 
 def _vlm_engine_args_parser():

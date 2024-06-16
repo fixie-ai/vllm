@@ -29,7 +29,7 @@ from vllm.config import AudioLanguageConfig, CacheConfig
 from vllm.entrypoints.openai import multi_modal
 from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.layers.quantization.base_config import (
-    QuantizationConfig)
+    QuantizationConfig, )
 from vllm.model_executor.layers.sampler import Sampler
 from vllm.model_executor.layers.vocab_parallel_embedding import ParallelLMHead
 from vllm.model_executor.models.whisper_streaming import WhisperEncoder
@@ -37,7 +37,6 @@ from vllm.model_executor.models.whisper_streaming import WhisperEncoder
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import SamplerOutput
 import time
-
 
 _KEYS_TO_MODIFY_MAPPING = {
     "language_model.lm_head": "lm_head",
@@ -47,16 +46,18 @@ _KEYS_TO_MODIFY_MAPPING = {
 logger = logging.get_logger(__name__)
 
 
-def _merge_audio_embeddings(input_ids: torch.Tensor,
-                            inputs_embeds: torch.Tensor,
-                            audio_embeddings: torch.Tensor,
-                            audio_token_id: int):
+def _merge_audio_embeddings(
+    input_ids: torch.Tensor,
+    inputs_embeds: torch.Tensor,
+    audio_embeddings: torch.Tensor,
+    audio_token_id: int,
+):
     """
     In place merges in audio_embeddings with inputs_embeds.
     Occasionally the audio embeddings are longer than the supplied audio tokens
     in which case we just truncate the excess audio embeddings (in practice, just 1).
     """
-    mask = (input_ids == audio_token_id)
+    mask = input_ids == audio_token_id
     num_audio_tokens = torch.sum(mask)
     audio_embeddings = audio_embeddings[:, :num_audio_tokens, :]
     inputs_embeds[mask] = audio_embeddings.view(-1, audio_embeddings.shape[-1])
@@ -240,35 +241,43 @@ class UltravoxProjector(ProjectionLayer):
 
 
 class UltravoxModel(nn.Module):
-    def __init__(self,
-                 config: UltravoxConfig,
-                 audio_language_config: AudioLanguageConfig,
-                 cache_config: Optional[CacheConfig] = None,
-                 quant_config: Optional["QuantizationConfig"] = None):
+
+    def __init__(
+        self,
+        config: UltravoxConfig,
+        audio_language_config: AudioLanguageConfig,
+        cache_config: Optional[CacheConfig] = None,
+        quant_config: Optional["QuantizationConfig"] = None,
+    ):
         from vllm.model_executor.models.llama import LlamaModel
+
         super().__init__()
         self.config = config
         self.audio_language_config = audio_language_config
         assert self.audio_language_config
 
-        #config.audio_model_id = config.audio_model_id or config.audio_config._name_or_path
+        # config.audio_model_id = config.audio_model_id or config.audio_config._name_or_path
         if config.audio_model_id is not None:
-            self.audio_tower = WhisperEncoder.from_pretrained(config.audio_model_id)
+            self.audio_tower = WhisperEncoder.from_pretrained(
+                config.audio_model_id)
         else:
             self.audio_tower = WhisperEncoder.from_config(config.audio_config)
         self.audio_tower = self.audio_tower.to(torch.bfloat16).to("cuda")
         torch.compile(self.audio_tower)
         self.audio_tower.eval()
 
-        self.multi_modal_projector = UltravoxProjector(config).to(torch.bfloat16).to("cuda")
+        self.multi_modal_projector = (UltravoxProjector(config).to(
+            torch.bfloat16).to("cuda"))
         self.quant_config = quant_config
 
-        self.language_model = LlamaModel(config.text_config, cache_config, quant_config)
+        self.language_model = LlamaModel(config.text_config, cache_config,
+                                         quant_config)
         self.unpadded_vocab_size = config.text_config.vocab_size
         self.lm_head = ParallelLMHead(
             self.unpadded_vocab_size,
             config.text_config.hidden_size,
-            org_num_embeddings=self.language_model.org_vocab_size)
+            org_num_embeddings=self.language_model.org_vocab_size,
+        )
         logit_scale = getattr(config, "logit_scale", 1.0)
         self.logits_processor = LogitsProcessor(self.unpadded_vocab_size,
                                                 config.text_config.vocab_size,
@@ -281,7 +290,7 @@ class UltravoxModel(nn.Module):
         positions: torch.Tensor,
         kv_caches: List[torch.Tensor],
         attn_metadata: AttentionMetadata,
-        audio_input: Optional[torch.Tensor] = None
+        audio_input: Optional[torch.Tensor] = None,
     ) -> SamplerOutput:  # noqa: E501
         """Run forward pass for Llava 1.5.
 
@@ -293,7 +302,7 @@ class UltravoxModel(nn.Module):
         [1, 32000, 29871, 13, 11889, 29901, 1724, 29915, 29879, 278,
         2793, 310, 278, 1967, 29973, 13, 22933, 9047, 13566, 29901].
         The to-be-inserted audio has a size that is essentially 6.25 tokens
-        per second of audio.        
+        per second of audio.
         `input_ids` is thus [1, 32000, ..., 32000, 29871, 13, 11889, 29901,
         1724, 29915, 29879, 278, 2793, 310, 278, 1967, 29973, 13, 22933,
         9047, 13566, 29901].
@@ -307,38 +316,45 @@ class UltravoxModel(nn.Module):
             input_ids: Flattened (concatenated) input_ids corresponding to a
                 batch.
             image_input: A batch of audio inputs, [1, 80, M].
-        """               
+        """
         t1 = time.perf_counter()
         t2 = None
-        t3 = None            
-        if audio_input is not None:           
-            audio_input = audio_input.to(self.audio_tower.dtype)        
-            inputs_embeds = self.language_model.get_input_embeddings(input_ids)            
-            audio_features = self.audio_tower(audio_input).last_hidden_state                
+        t3 = None
+        if audio_input is not None:
+            audio_input = audio_input.to(self.audio_tower.dtype)
+            inputs_embeds = self.language_model.get_input_embeddings(input_ids)
+            audio_features = self.audio_tower(audio_input).last_hidden_state
             t2 = time.perf_counter()
-            audio_features = audio_features.to(self.audio_tower.dtype)        
-              
-            audio_embeddings = self.multi_modal_projector(audio_features).to(inputs_embeds.dtype)
-            audio_token_count = torch.sum(input_ids == self.audio_language_config.audio_token_id) 
+            audio_features = audio_features.to(self.audio_tower.dtype)
+
+            audio_embeddings = self.multi_modal_projector(audio_features).to(
+                inputs_embeds.dtype)
+            audio_token_count = torch.sum(
+                input_ids == self.audio_language_config.audio_token_id)
             if audio_embeddings.shape[1] != audio_token_count:
                 logger.warning(
                     f"The number of audio tokens in the prompt ({audio_token_count}) "
                     f"does not match the number of audio embeddings "
-                    f"({audio_embeddings.shape[1]})."
-                ) 
+                    f"({audio_embeddings.shape[1]}).")
 
             t3 = time.perf_counter()
-            _merge_audio_embeddings(input_ids, inputs_embeds, audio_embeddings,
-                                    self.audio_language_config.audio_token_id)  
+            _merge_audio_embeddings(
+                input_ids,
+                inputs_embeds,
+                audio_embeddings,
+                self.audio_language_config.audio_token_id,
+            )
             input_ids = None
         else:
             inputs_embeds = None
 
-        hidden_states = self.language_model(input_ids=input_ids,
-                                            positions=positions,
-                                            kv_caches=kv_caches,
-                                            attn_metadata=attn_metadata,
-                                            inputs_embeds=inputs_embeds)
+        hidden_states = self.language_model(
+            input_ids=input_ids,
+            positions=positions,
+            kv_caches=kv_caches,
+            attn_metadata=attn_metadata,
+            inputs_embeds=inputs_embeds,
+        )
         t4 = time.perf_counter()
         if t2 and t3:
             logger.info(f"encoder  : {((t2 - t1)*1000):0f} ms")
@@ -361,7 +377,9 @@ class UltravoxModel(nn.Module):
         return next_tokens
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
-        from vllm.model_executor.model_loader.weight_utils import default_weight_loader
+        from vllm.model_executor.model_loader.weight_utils import (
+            default_weight_loader, )
+
         # only doing this for language model part for now.
         stacked_params_mapping = [
             # (param_name, shard_name, shard_id)
@@ -385,8 +403,7 @@ class UltravoxModel(nn.Module):
                     # not audio model for now.
                     use_default_weight_loading = True
             else:
-                for (param_name, weight_name,
-                     shard_id) in stacked_params_mapping:
+                for param_name, weight_name, shard_id in stacked_params_mapping:
                     if weight_name not in name:
                         continue
                     new_name = name.replace(weight_name, param_name)
