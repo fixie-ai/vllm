@@ -111,10 +111,6 @@ class AttentionImpl(ABC, Generic[T]):
         alibi_slopes: Optional[List[float]] = None,
         sliding_window: Optional[int] = None,
         kv_cache_dtype: str = "auto",
-<<<<<<< HEAD
-=======
-        blocksparse_params: Optional[Dict[str, Any]] = None,
->>>>>>> fixie-ai/vllm/main
     ) -> None:
         raise NotImplementedError
 

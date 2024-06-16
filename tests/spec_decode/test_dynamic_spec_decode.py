@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 from unittest.mock import MagicMock
-=======
-from unittest.mock import MagicMock, patch
->>>>>>> fixie-ai/vllm/main
 
 import pytest
 import torch
@@ -17,15 +13,9 @@ from vllm.spec_decode.top1_proposer import Top1Proposer
 from .utils import create_batch, mock_worker
 
 
-<<<<<<< HEAD
 @pytest.mark.parametrize('queue_size', [2, 4])
 @pytest.mark.parametrize('batch_size', [1, 2, 3, 6])
 @pytest.mark.parametrize('k', [1, 2, 5, 7, 10])
-=======
-@pytest.mark.parametrize('queue_size', [4])
-@pytest.mark.parametrize('batch_size', [1])
-@pytest.mark.parametrize('k', [1])
->>>>>>> fixie-ai/vllm/main
 @torch.inference_mode()
 def test_disable_spec_tokens(queue_size: int, batch_size: int, k: int):
     """Verify that speculative tokens are disabled when the batch size
@@ -52,17 +42,8 @@ def test_disable_spec_tokens(queue_size: int, batch_size: int, k: int):
         num_lookahead_slots=k,
         running_queue_size=queue_size)
 
-<<<<<<< HEAD
     with pytest.raises(ValueError, match=exception_secret):
         worker.execute_model(execute_model_req=execute_model_req)
-=======
-    if queue_size > disable_by_batch_size:
-        with patch.object(worker,
-                          '_run_no_spec',
-                          side_effect=ValueError(exception_secret)), \
-            pytest.raises(ValueError, match=exception_secret):
-            worker.execute_model(execute_model_req=execute_model_req)
->>>>>>> fixie-ai/vllm/main
 
     # When the batch size is larger than the threshold,
     # we expect no speculative tokens (0).
@@ -83,21 +64,13 @@ def test_disable_spec_tokens(queue_size: int, batch_size: int, k: int):
     if queue_size < disable_by_batch_size:
         # Should raise exception when executing the mocked draft model.
         with pytest.raises(ValueError, match=exception_secret):
-<<<<<<< HEAD
             proposer.get_proposals(execute_model_req=ExecuteModelRequest(
-=======
-            proposer.get_spec_proposals(execute_model_req=ExecuteModelRequest(
->>>>>>> fixie-ai/vllm/main
                 seq_group_metadata_list=seq_group_metadata_list,
                 num_lookahead_slots=k), )
     else:
         # Should not execute the draft model because spec decode is disabled
         # for all requests. Accordingly, the proposal length should be 0.
-<<<<<<< HEAD
         proposals = proposer.get_proposals(
-=======
-        proposals = proposer.get_spec_proposals(
->>>>>>> fixie-ai/vllm/main
             execute_model_req=ExecuteModelRequest(
                 seq_group_metadata_list=seq_group_metadata_list,
                 num_lookahead_slots=k), )

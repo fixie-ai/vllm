@@ -1,9 +1,5 @@
 import time
-<<<<<<< HEAD
 from typing import AsyncIterator, List, Tuple
-=======
-from typing import AsyncIterator, List, Optional, Tuple
->>>>>>> fixie-ai/vllm/main
 
 from fastapi import Request
 
@@ -104,24 +100,11 @@ class OpenAIServingEmbedding(OpenAIServing):
 
                 prompt_ids, prompt_text = prompt_formats
 
-<<<<<<< HEAD
                 generators.append(
                     self.engine.generate(prompt_text,
                                          pooling_params,
                                          f"{request_id}-{i}",
                                          prompt_token_ids=prompt_ids))
-=======
-                generator = self.engine.encode(
-                    {
-                        "prompt": prompt_text,
-                        "prompt_token_ids": prompt_ids
-                    },
-                    pooling_params,
-                    f"{request_id}-{i}",
-                )
-
-                generators.append(generator)
->>>>>>> fixie-ai/vllm/main
         except ValueError as e:
             # TODO: Use a vllm-specific Validation Error
             return self.create_error_response(str(e))
@@ -130,7 +113,6 @@ class OpenAIServingEmbedding(OpenAIServing):
             int, EmbeddingRequestOutput]] = merge_async_iterators(*generators)
 
         # Non-streaming response
-<<<<<<< HEAD
         final_res_batch: EmbeddingRequestOutput = [None] * len(prompts)
         async for i, res in result_generator:
             if await raw_request.is_disconnected():
@@ -141,23 +123,6 @@ class OpenAIServingEmbedding(OpenAIServing):
             final_res_batch[i] = res
         response = request_output_to_embedding_response(
             final_res_batch, request_id, created_time, model_name)
-=======
-        final_res_batch: List[Optional[EmbeddingRequestOutput]]
-        final_res_batch = [None] * len(prompts)
-        try:
-            async for i, res in result_generator:
-                if await raw_request.is_disconnected():
-                    # Abort the request if the client disconnects.
-                    await self.engine.abort(f"{request_id}-{i}")
-                    # TODO: Use a vllm-specific Validation Error
-                    return self.create_error_response("Client disconnected")
-                final_res_batch[i] = res
-            response = request_output_to_embedding_response(
-                final_res_batch, request_id, created_time, model_name)
-        except ValueError as e:
-            # TODO: Use a vllm-specific Validation Error
-            return self.create_error_response(str(e))
->>>>>>> fixie-ai/vllm/main
 
         return response
 

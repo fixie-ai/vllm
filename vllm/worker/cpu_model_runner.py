@@ -1,5 +1,4 @@
-from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 from torch import nn
@@ -7,16 +6,11 @@ from torch import nn
 from vllm.attention import AttentionMetadata, get_attn_backend
 from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
                          ModelConfig, ParallelConfig, SchedulerConfig,
-<<<<<<< HEAD
                          AudioLanguageConfig, VisionLanguageConfig)
-=======
-                         VisionLanguageConfig)
->>>>>>> fixie-ai/vllm/main
 from vllm.distributed import broadcast_tensor_dict
 from vllm.logger import init_logger
 from vllm.model_executor import SamplingMetadata
 from vllm.model_executor.model_loader import get_model
-from vllm.multimodal import MULTIMODAL_REGISTRY
 from vllm.sequence import SamplerOutput, SequenceGroupMetadata
 from vllm.utils import make_tensor_with_pad
 
@@ -70,19 +64,6 @@ class CPUModelRunner:
             self.kv_cache_dtype,
             self.block_size,
         )
-<<<<<<< HEAD
-=======
-
-        # Create processor for multi-modal data
-        if self.vision_language_config is not None:
-            self.multi_modal_input_processor = MULTIMODAL_REGISTRY \
-                .create_input_processor(
-                    self.model_config,
-                    self.vision_language_config,
-                )
-        else:
-            self.multi_modal_input_processor = None
->>>>>>> fixie-ai/vllm/main
 
         # Lazy initialization.
         self.model: nn.Module  # Set after init_Model
@@ -101,15 +82,14 @@ class CPUModelRunner:
     def _prepare_prompt(
         self,
         seq_group_metadata_list: List[SequenceGroupMetadata],
-    ) -> Tuple[torch.Tensor, torch.Tensor, AttentionMetadata, List[int], Dict[
-            str, torch.Tensor]]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, AttentionMetadata, List[int],
+               Optional[torch.Tensor]]:
         assert len(seq_group_metadata_list) > 0
         input_tokens: List[int] = []
         input_positions: List[int] = []
         slot_mapping: List[int] = []
         seq_lens: List[int] = []
-        multi_modal_kwargs_list: Dict[str,
-                                      List[torch.Tensor]] = defaultdict(list)
+        multi_modal_input_list: List[torch.Tensor] = []
 
         for seq_group_metadata in seq_group_metadata_list:
             assert seq_group_metadata.is_prompt
@@ -130,17 +110,9 @@ class CPUModelRunner:
             # is always the first token in the sequence.
             input_positions.extend(list(range(computed_len, seq_len)))
 
-            mm_data = seq_group_metadata.multi_modal_data
-            if mm_data is not None:
-                # Process multi-modal data
-                if self.multi_modal_input_processor is None:
-                    raise ValueError(
-                        "Multi-modal inputs are only supported by "
-                        "vision language models.")
-
-                mm_kwargs = self.multi_modal_input_processor(mm_data)
-                for k, v in mm_kwargs.items():
-                    multi_modal_kwargs_list[k].append(v)
+            if seq_group_metadata.multi_modal_data:
+                multi_modal_input_list.append(
+                    seq_group_metadata.multi_modal_data.data)
 
             # Compute the slot mapping.
             block_table = seq_group_metadata.block_tables[seq_id]
@@ -164,10 +136,14 @@ class CPUModelRunner:
                 slot = block_number * self.block_size + block_offset
                 slot_mapping.append(slot)
 
-        multi_modal_kwargs = {
-            k: torch.cat(v, dim=0).to(self.device)
-            for k, v in multi_modal_kwargs_list.items()
-        }
+        if multi_modal_input_list:
+            assert self.vision_language_config, (
+                "Multi-modal inputs are only supported by "
+                "vision language models.")
+            multi_modal_input = torch.cat(multi_modal_input_list,
+                                          dim=0).to(self.device)
+        else:
+            multi_modal_input = None
 
         num_prompt_tokens = len(input_tokens)
 
@@ -193,7 +169,7 @@ class CPUModelRunner:
             slot_mapping=slot_mapping,
         )
         return (input_tokens, input_positions, attn_metadata, seq_lens,
-                multi_modal_kwargs)
+                multi_modal_input)
 
     def _prepare_decode(
         self,
@@ -283,8 +259,8 @@ class CPUModelRunner:
         self,
         seq_group_metadata_list: List[SequenceGroupMetadata],
     ) -> Tuple[torch.Tensor, torch.Tensor, AttentionMetadata, SamplingMetadata,
-               Optional[Dict[str, torch.Tensor]]]:
-        multi_modal_kwargs = None
+               Optional[torch.Tensor]]:
+        multi_modal_input = None
         if self.is_driver_worker:
             # NOTE: We assume that all sequences in the group are all prompts or
             # all decodes.
@@ -292,7 +268,7 @@ class CPUModelRunner:
             # Prepare input tensors.
             if is_prompt:
                 (input_tokens, input_positions, attn_metadata, seq_lens,
-                 multi_modal_kwargs
+                 multi_modal_input
                  ) = self._prepare_prompt(seq_group_metadata_list)
             else:
                 (input_tokens, input_positions,
@@ -333,7 +309,7 @@ class CPUModelRunner:
             )
 
         return (input_tokens, input_positions, attn_metadata,
-                sampling_metadata, multi_modal_kwargs)
+                sampling_metadata, multi_modal_input)
 
     @torch.inference_mode()
     def execute_model(
@@ -352,15 +328,10 @@ class CPUModelRunner:
             "kv_caches": kv_caches,
             "attn_metadata": attn_metadata,
         }
-<<<<<<< HEAD
         if self.vision_language_config:
             execute_model_kwargs.update({"image_input": multi_modal_input})
         elif self.audio_language_config:
             execute_model_kwargs.update({"audio_input": multi_modal_input})
-=======
-        if self.vision_language_config and multi_modal_input is not None:
-            execute_model_kwargs.update(multi_modal_input)
->>>>>>> fixie-ai/vllm/main
 
         hidden_states = model_executable(**execute_model_kwargs)
 

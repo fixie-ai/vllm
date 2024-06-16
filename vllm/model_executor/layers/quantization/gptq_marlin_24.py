@@ -12,18 +12,6 @@ from vllm.model_executor.utils import set_weight_attrs
 
 logger = init_logger(__name__)
 
-<<<<<<< HEAD
-=======
-GPTQ_MARLIN_24_TILE = 16
-GPTQ_MARLIN_24_MIN_THREAD_N = 128
-GPTQ_MARLIN_24_MIN_THREAD_K = 128
-GPTQ_MARLIN_24_MAX_PARALLEL = 64
-
-GPTQ_MARLIN_24_SUPPORTED_NUM_BITS = [4, 8]
-GPTQ_MARLIN_24_SUPPORTED_GROUP_SIZES = [-1, 128]
-GPTQ_MARLIN_24_SUPPORTED_SYM = [True]
-
->>>>>>> fixie-ai/vllm/main
 
 class GPTQMarlin24Config(QuantizationConfig):
     """Config class for Marlin24.
@@ -37,7 +25,6 @@ class GPTQMarlin24Config(QuantizationConfig):
         self.weight_bits = weight_bits
         self.group_size = group_size
 
-<<<<<<< HEAD
         if self.weight_bits != 4 and self.weight_bits != 8:
             raise ValueError("weight_bits must be 4 or 8. Got = {}".format(
                 self.weight_bits))
@@ -47,19 +34,6 @@ class GPTQMarlin24Config(QuantizationConfig):
                 "Currently, only group size 128 and -1 (channelwise) "
                 "is supported for Marlin24, but got group_size of "
                 f"{self.group_size}")
-=======
-        # Verify
-        if self.weight_bits not in GPTQ_MARLIN_24_SUPPORTED_NUM_BITS:
-            raise ValueError(
-                f"Marlin_24 does not support weight_bits = {self.weight_bits}. "
-                f"Only weight_bits = {GPTQ_MARLIN_24_SUPPORTED_NUM_BITS} "
-                "are supported.")
-        if self.group_size not in GPTQ_MARLIN_24_SUPPORTED_GROUP_SIZES:
-            raise ValueError(
-                f"Marlin_24 does not support group_size = {self.group_size}. "
-                f"Only group_sizes = {GPTQ_MARLIN_24_SUPPORTED_GROUP_SIZES} "
-                "are supported.")
->>>>>>> fixie-ai/vllm/main
 
         # 4 Bits packed into 32 bit datatype.
         self.pack_factor = 32 // self.weight_bits
@@ -68,7 +42,6 @@ class GPTQMarlin24Config(QuantizationConfig):
         self.tile_size = 16
 
         # Min out_features dim
-<<<<<<< HEAD
         self.min_n_threads = 128
 
         # Min in_features dim
@@ -77,16 +50,6 @@ class GPTQMarlin24Config(QuantizationConfig):
         # Max parallel problems to solve at once (improves large
         # batch performance)
         self.max_parallel = 16
-=======
-        self.min_n_threads = GPTQ_MARLIN_24_MIN_THREAD_N
-
-        # Min in_features dim
-        self.min_k_threads = GPTQ_MARLIN_24_MIN_THREAD_K
-
-        # Max parallel problems to solve at once (improves large
-        # batch performance)
-        self.max_parallel = GPTQ_MARLIN_24_MAX_PARALLEL
->>>>>>> fixie-ai/vllm/main
 
         # Permutation length used by the marlin kernels.
         self.perm_len = 1024

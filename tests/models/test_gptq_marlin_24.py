@@ -14,20 +14,10 @@ import torch
 from tests.models.utils import check_logprobs_close
 from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 
-<<<<<<< HEAD
 capability = torch.cuda.get_device_capability()
 capability = capability[0] * 10 + capability[1]
 marlin_not_supported = (capability <
                         QUANTIZATION_METHODS["marlin"].get_min_capability())
-=======
-marlin_not_supported = True
-
-if torch.cuda.is_available():
-    capability = torch.cuda.get_device_capability()
-    capability = capability[0] * 10 + capability[1]
-    marlin_not_supported = (
-        capability < QUANTIZATION_METHODS["marlin"].get_min_capability())
->>>>>>> fixie-ai/vllm/main
 
 
 @dataclass
@@ -68,7 +58,6 @@ def test_models(
     max_tokens: int,
     num_logprobs: int,
 ) -> None:
-<<<<<<< HEAD
     marlin_24_model = vllm_runner(model_pair.model_marlin,
                                   dtype=dtype,
                                   quantization="gptq_marlin_24")
@@ -83,18 +72,6 @@ def test_models(
                                                        max_tokens,
                                                        num_logprobs)
     del gptq_model
-=======
-    with vllm_runner(model_pair.model_marlin,
-                     dtype=dtype,
-                     quantization="gptq_marlin_24") as marlin_24_model:
-        marlin_24_outputs = marlin_24_model.generate_greedy_logprobs(
-            example_prompts, max_tokens, num_logprobs)
-
-    with vllm_runner(model_pair.model_gptq, dtype=dtype,
-                     quantization="gptq") as gptq_model:
-        gptq_outputs = gptq_model.generate_greedy_logprobs(
-            example_prompts, max_tokens, num_logprobs)
->>>>>>> fixie-ai/vllm/main
 
     check_logprobs_close(
         outputs_0_lst=gptq_outputs,

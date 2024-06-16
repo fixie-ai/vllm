@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 from abc import ABC, abstractmethod, abstractproperty
-=======
-from abc import ABC, abstractmethod
->>>>>>> fixie-ai/vllm/main
 from contextlib import contextmanager
 from typing import Any, Dict, List, Literal, Optional, Set, Type, Union
 
@@ -46,12 +42,7 @@ class AbstractWorkerLoRAManager(ABC):
         yield
         self._cached_dummy_lora = False
 
-<<<<<<< HEAD
     @abstractproperty
-=======
-    @property
-    @abstractmethod
->>>>>>> fixie-ai/vllm/main
     def is_enabled(self) -> bool:
         ...
 

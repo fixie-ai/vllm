@@ -123,10 +123,8 @@ def create_sequence(prompt_token_ids=None):
     prompt_token_ids = prompt_token_ids or [1]
     return Sequence(
         seq_id=0,
-        inputs={
-            "prompt": "<s>",
-            "prompt_token_ids": prompt_token_ids,
-        },
+        prompt="<s>",
+        prompt_token_ids=prompt_token_ids,
         block_size=16,
     )
 

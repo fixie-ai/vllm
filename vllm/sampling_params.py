@@ -18,14 +18,10 @@ class SamplingType(IntEnum):
     BEAM = 3
 
 
-LogitsProcessor = Union[Callable[[List[int], torch.Tensor], torch.Tensor],
-                        Callable[[List[int], List[int], torch.Tensor],
-                                 torch.Tensor]]
-"""LogitsProcessor is a function that takes a list
-of previously generated tokens, the logits tensor
-for the next token and, optionally, prompt tokens as a
-first argument, and returns a modified tensor of logits
-to sample from."""
+LogitsProcessor = Callable[[List[int], torch.Tensor], torch.Tensor]
+"""LogitsProcessor is a function that takes a list of previously generated
+tokens and a tensor of the logits for the next token, and returns a modified
+tensor of logits to sample from."""
 
 
 class SamplingParams:
@@ -99,8 +95,7 @@ class SamplingParams:
         spaces_between_special_tokens: Whether to add spaces between special
             tokens in the output.  Defaults to True.
         logits_processors: List of functions that modify logits based on
-            previously generated tokens, and optionally prompt tokens as
-            a first argument.
+            previously generated tokens.
         truncate_prompt_tokens: If set to an integer k, will use only the last k
             tokens from the prompt (i.e., left truncation). Defaults to None
             (i.e., no truncation).

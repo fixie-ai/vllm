@@ -1,11 +1,7 @@
 """ Attention layer with torch scaled_dot_product_attention
     and PagedAttention."""
 from dataclasses import dataclass
-<<<<<<< HEAD
 from typing import List, Optional, Tuple, Type
-=======
-from typing import Any, Dict, List, Optional, Tuple, Type
->>>>>>> fixie-ai/vllm/main
 
 import torch
 from torch.nn.functional import scaled_dot_product_attention
@@ -104,13 +100,7 @@ class TorchSDPABackendImpl(AttentionImpl[TorchSDPAMetadata]):
         alibi_slopes: Optional[List[float]],
         sliding_window: Optional[int],
         kv_cache_dtype: str,
-<<<<<<< HEAD
-=======
-        blocksparse_params: Optional[Dict[str, Any]] = None,
->>>>>>> fixie-ai/vllm/main
     ) -> None:
-        assert blocksparse_params is None, ValueError(
-            "Torch SPDA does not support block-sparse attention.")
         self.num_heads = num_heads
         self.head_size = head_size
         self.scale = float(scale)

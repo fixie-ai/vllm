@@ -4,11 +4,7 @@ from torch import nn
 
 from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
                          ModelConfig, ParallelConfig, SchedulerConfig,
-<<<<<<< HEAD
                          VisionLanguageConfig, AudioLanguageConfig)
-=======
-                         VisionLanguageConfig)
->>>>>>> fixie-ai/vllm/main
 from vllm.model_executor.model_loader.loader import (BaseModelLoader,
                                                      get_model_loader)
 from vllm.model_executor.model_loader.utils import (
@@ -20,10 +16,7 @@ def get_model(*, model_config: ModelConfig, load_config: LoadConfig,
               scheduler_config: SchedulerConfig,
               lora_config: Optional[LoRAConfig],
               vision_language_config: Optional[VisionLanguageConfig],
-<<<<<<< HEAD
               audio_language_config: Optional[AudioLanguageConfig],
-=======
->>>>>>> fixie-ai/vllm/main
               cache_config: CacheConfig) -> nn.Module:
     loader = get_model_loader(load_config)
     return loader.load_model(model_config=model_config,

@@ -3,7 +3,6 @@ import dataclasses
 import json
 import os
 import uuid
-<<<<<<< HEAD
 from functools import partial
 
 from tensorizer import stream_io
@@ -16,14 +15,6 @@ from vllm.engine.llm_engine import LLMEngine
 from vllm.model_executor.model_loader.tensorizer import (TensorizerArgs,
                                                          TensorizerConfig,
                                                          serialize_vllm_model)
-=======
-
-from vllm import LLM
-from vllm.engine.arg_utils import EngineArgs
-from vllm.model_executor.model_loader.tensorizer import (TensorizerArgs,
-                                                         TensorizerConfig,
-                                                         tensorize_vllm_model)
->>>>>>> fixie-ai/vllm/main
 
 # yapf conflicts with isort for this docstring
 # yapf: disable
@@ -69,12 +60,6 @@ Which downloads the model tensors from your S3 bucket and deserializes them.
 
 You can also provide a `--keyfile` argument to decrypt the model weights if 
 they were serialized with encryption.
-
-To support distributed tensor-parallel models, each model shard will be
-serialized to a separate file. The tensorizer_uri is then specified as a string
-template with a format specifier such as '%03d' that will be rendered with the
-shard's rank. Sharded models serialized with this script will be named as
-model-rank-%03d.tensors
 
 For more information on the available arguments for serializing, run 
 `python -m examples.tensorize_vllm_model serialize --help`.
@@ -183,16 +168,11 @@ def parse_args():
 def deserialize():
     llm = LLM(model=args.model,
               load_format="tensorizer",
-<<<<<<< HEAD
-=======
-              tensor_parallel_size=args.tensor_parallel_size,
->>>>>>> fixie-ai/vllm/main
               model_loader_extra_config=tensorizer_config
     )
     return llm
 
 
-<<<<<<< HEAD
 
 args = parse_args()
 
@@ -262,68 +242,3 @@ elif args.command == "deserialize":
     deserialize()
 else:
     raise ValueError("Either serialize or deserialize must be specified.")
-=======
-if __name__ == '__main__':
-    args = parse_args()
-
-    s3_access_key_id = (getattr(args, 's3_access_key_id', None)
-                        or os.environ.get("S3_ACCESS_KEY_ID", None))
-    s3_secret_access_key = (getattr(args, 's3_secret_access_key', None)
-                            or os.environ.get("S3_SECRET_ACCESS_KEY", None))
-    s3_endpoint = (getattr(args, 's3_endpoint', None)
-                or os.environ.get("S3_ENDPOINT_URL", None))
-
-    credentials = {
-        "s3_access_key_id": s3_access_key_id,
-        "s3_secret_access_key": s3_secret_access_key,
-        "s3_endpoint": s3_endpoint
-    }
-
-    model_ref = args.model
-
-    model_name = model_ref.split("/")[1]
-
-    keyfile = args.keyfile if args.keyfile else None
-
-    if args.model_loader_extra_config:
-        config = json.loads(args.model_loader_extra_config)
-        tensorizer_args = \
-            TensorizerConfig(**config)._construct_tensorizer_args()
-        tensorizer_args.tensorizer_uri = args.path_to_tensors
-    else:
-        tensorizer_args = None
-
-    if args.command == "serialize":
-        eng_args_dict = {f.name: getattr(args, f.name) for f in
-                        dataclasses.fields(EngineArgs)}
-
-        engine_args = EngineArgs.from_cli_args(
-            argparse.Namespace(**eng_args_dict)
-        )
-
-        input_dir = args.serialized_directory.rstrip('/')
-        suffix = args.suffix if args.suffix else uuid.uuid4().hex
-        base_path = f"{input_dir}/vllm/{model_ref}/{suffix}"
-        if engine_args.tensor_parallel_size > 1:
-            model_path = f"{base_path}/model-rank-%03d.tensors"
-        else:
-            model_path = f"{base_path}/model.tensors"
-
-        tensorizer_config = TensorizerConfig(
-            tensorizer_uri=model_path,
-            encryption_keyfile=keyfile,
-            **credentials)
-
-        tensorize_vllm_model(engine_args, tensorizer_config)
-
-    elif args.command == "deserialize":
-        if not tensorizer_args:
-            tensorizer_config = TensorizerConfig(
-                tensorizer_uri=args.path_to_tensors,
-                encryption_keyfile = keyfile,
-                **credentials
-            )
-        deserialize()
-    else:
-        raise ValueError("Either serialize or deserialize must be specified.")
->>>>>>> fixie-ai/vllm/main

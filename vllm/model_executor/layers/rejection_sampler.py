@@ -306,10 +306,8 @@ class RejectionSampler(nn.Module):
 
         # Fill in the first k columns of the output tensor using masks and data
         # tensors.
-        torch.where(accepted_mask,
-                    draft_token_ids,
-                    -torch.ones_like(draft_token_ids),
-                    out=output)
+        output[:, :k] = torch.where(accepted_mask, draft_token_ids,
+                                    -torch.ones_like(draft_token_ids))
 
         # Fill the last column.
         # We check output directly as accepted may have True values inconsistent

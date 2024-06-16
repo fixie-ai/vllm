@@ -4,10 +4,10 @@ from typing import Optional, Tuple, Union
 import torch
 import torch.nn as nn
 
-from vllm.model_executor.custom_op import CustomOp
+from vllm import _custom_ops as ops
 
 
-class RMSNorm(CustomOp):
+class RMSNorm(nn.Module):
     """Root mean square normalization.
 
     Computes x -> w * x / sqrt(E[x^2] + eps) where w is the learned weight.
@@ -23,7 +23,7 @@ class RMSNorm(CustomOp):
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.variance_epsilon = eps
 
-    def forward_native(
+    def _forward(
         self,
         x: torch.Tensor,
         residual: Optional[torch.Tensor] = None,
@@ -43,13 +43,11 @@ class RMSNorm(CustomOp):
         else:
             return x, residual
 
-    def forward_cuda(
+    def forward(
         self,
         x: torch.Tensor,
         residual: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        from vllm import _custom_ops as ops
-
         if residual is not None:
             ops.fused_add_rms_norm(
                 x,

@@ -78,7 +78,6 @@ def run_vllm(
     enable_prefix_caching: bool,
     enable_chunked_prefill: bool,
     max_num_batched_tokens: int,
-    distributed_executor_backend: Optional[str],
     gpu_memory_utilization: float = 0.9,
     download_dir: Optional[str] = None,
 ) -> float:
@@ -101,7 +100,6 @@ def run_vllm(
         download_dir=download_dir,
         enable_chunked_prefill=enable_chunked_prefill,
         max_num_batched_tokens=max_num_batched_tokens,
-        distributed_executor_backend=distributed_executor_backend,
     )
 
     # Add the requests to the engine.
@@ -227,8 +225,8 @@ def main(args: argparse.Namespace):
             args.enforce_eager, args.kv_cache_dtype,
             args.quantization_param_path, args.device,
             args.enable_prefix_caching, args.enable_chunked_prefill,
-            args.max_num_batched_tokens, args.distributed_executor_backend,
-            args.gpu_memory_utilization, args.download_dir)
+            args.max_num_batched_tokens, args.gpu_memory_utilization,
+            args.download_dir)
     elif args.backend == "hf":
         assert args.tensor_parallel_size == 1
         elapsed_time = run_hf(requests, args.model, tokenizer, args.n,
@@ -325,13 +323,15 @@ if __name__ == "__main__":
                         action="store_true",
                         help="enforce eager execution")
     parser.add_argument(
-        '--kv-cache-dtype',
+        "--kv-cache-dtype",
         type=str,
-        choices=['auto', 'fp8', 'fp8_e5m2', 'fp8_e4m3'],
+        choices=["auto", "fp8"],
         default="auto",
-        help='Data type for kv cache storage. If "auto", will use model '
-        'data type. CUDA 11.8+ supports fp8 (=fp8_e4m3) and fp8_e5m2. '
-        'ROCm (AMD GPU) supports fp8 (=fp8_e4m3)')
+        help=
+        'Data type for kv cache storage. If "auto", will use model data type. '
+        'FP8_E5M2 (without scaling) is only supported on cuda version greater '
+        'than 11.8. On ROCm (AMD GPU), FP8_E4M3 is instead supported for '
+        'common inference criteria.')
     parser.add_argument(
         '--quantization-param-path',
         type=str,
@@ -346,7 +346,7 @@ if __name__ == "__main__":
         "--device",
         type=str,
         default="cuda",
-        choices=["cuda", "cpu", "tpu"],
+        choices=["cuda", "cpu"],
         help='device type for vLLM execution, supporting CUDA and CPU.')
     parser.add_argument(
         "--enable-prefix-caching",
@@ -370,16 +370,6 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help='Path to save the throughput results in JSON format.')
-<<<<<<< HEAD
-=======
-    parser.add_argument(
-        '--distributed-executor-backend',
-        choices=['ray', 'mp'],
-        default=None,
-        help='Backend to use for distributed serving. When more than 1 GPU '
-        'is used, will be automatically set to "ray" if installed '
-        'or "mp" (multiprocessing) otherwise.')
->>>>>>> fixie-ai/vllm/main
     args = parser.parse_args()
     if args.tokenizer is None:
         args.tokenizer = args.model

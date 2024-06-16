@@ -1,7 +1,7 @@
 #pragma once
 
 #ifdef USE_ROCM
-  #include <hip/hip_runtime.h>
+#include <hip/hip_runtime.h>
 #endif
 
 #ifndef USE_ROCM
@@ -17,14 +17,9 @@
 #endif
 
 #ifndef USE_ROCM
-  #define VLLM_SHFL_XOR_SYNC(var, lane_mask) \
-    __shfl_xor_sync(uint32_t(-1), var, lane_mask)
-  #define VLLM_SHFL_XOR_SYNC_WIDTH(var, lane_mask, width) \
-    __shfl_xor_sync(uint32_t(-1), var, lane_mask, width)
+  #define VLLM_SHFL_XOR_SYNC(var, lane_mask) __shfl_xor_sync(uint32_t(-1), var, lane_mask)
 #else
   #define VLLM_SHFL_XOR_SYNC(var, lane_mask) __shfl_xor(var, lane_mask)
-  #define VLLM_SHFL_XOR_SYNC_WIDTH(var, lane_mask, width) \
-    __shfl_xor(var, lane_mask, width)
 #endif
 
 #ifndef USE_ROCM
@@ -34,12 +29,7 @@
 #endif
 
 #ifndef USE_ROCM
-<<<<<<< HEAD
   #define VLLM_SHFL_DOWN_SYNC(var, lane_delta) __shfl_down_sync(uint32_t(-1), var, lane_delta)
-=======
-  #define VLLM_SHFL_DOWN_SYNC(var, lane_delta) \
-    __shfl_down_sync(uint32_t(-1), var, lane_delta)
->>>>>>> fixie-ai/vllm/main
 #else
   #define VLLM_SHFL_DOWN_SYNC(var, lane_delta) __shfl_down(var, lane_delta)
 #endif
@@ -51,3 +41,4 @@
   #define VLLM_DevFuncAttribute_SET_MaxDynamicSharedMemorySize(FUNC, VAL) \
     hipFuncSetAttribute(FUNC, hipFuncAttributeMaxDynamicSharedMemorySize, VAL)
 #endif
+

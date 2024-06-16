@@ -28,7 +28,6 @@ steps:
         command: bash .buildkite/run-amd-test.sh "cd {{ (step.working_dir or default_working_dir) | safe  }} ; {{ step.command  or (step.commands | join(" ; ")) | safe }}"
         env:
           DOCKER_BUILDKIT: "1"
-        soft_fail: true
     {% endif %}
     {% endfor %}
 
@@ -37,12 +36,10 @@ steps:
     agents:
       queue: neuron
     command: bash .buildkite/run-neuron-test.sh
-    soft_fail: false
+    soft_fail: true
 
   - label: "Intel Test"
     depends_on: ~
-    agents:
-      queue: intel
     command: bash .buildkite/run-cpu-test.sh
 
   {% for step in steps %}

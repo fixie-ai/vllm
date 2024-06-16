@@ -46,12 +46,8 @@ class EmbeddingModelBlockSpaceManager(BlockSpaceManager):
                     num_lookahead_slots: int) -> AllocStatus:
         return AllocStatus.OK
 
-<<<<<<< HEAD
     def swap_in(self, seq_group: SequenceGroup,
                 num_lookahead_slots: int) -> List[Tuple[int, int]]:
-=======
-    def swap_in(self, seq_group: SequenceGroup) -> List[Tuple[int, int]]:
->>>>>>> fixie-ai/vllm/main
         return None  # type: ignore
 
     def can_swap_out(self, seq_group: SequenceGroup) -> bool:

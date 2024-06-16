@@ -5,7 +5,7 @@
 macro (find_python_from_executable EXECUTABLE SUPPORTED_VERSIONS)
   file(REAL_PATH ${EXECUTABLE} EXECUTABLE)
   set(Python_EXECUTABLE ${EXECUTABLE})
-  find_package(Python COMPONENTS Interpreter Development.Module Development.SABIModule)
+  find_package(Python COMPONENTS Interpreter Development.Module)
   if (NOT Python_FOUND)
     message(FATAL_ERROR "Unable to find python matching: ${EXECUTABLE}.")
   endif()
@@ -294,7 +294,6 @@ endmacro()
 # INCLUDE_DIRECTORIES <dirs> - Extra include directories.
 # LIBRARIES <libraries>      - Extra link libraries.
 # WITH_SOABI                 - Generate library with python SOABI suffix name.
-# USE_SABI <version>         - Use python stable api <version>
 #
 # Note: optimization level/debug info is set via cmake build type.
 #
@@ -302,7 +301,7 @@ function (define_gpu_extension_target GPU_MOD_NAME)
   cmake_parse_arguments(PARSE_ARGV 1
     GPU
     "WITH_SOABI"
-    "DESTINATION;LANGUAGE;USE_SABI"
+    "DESTINATION;LANGUAGE"
     "SOURCES;ARCHITECTURES;COMPILE_FLAGS;INCLUDE_DIRECTORIES;LIBRARIES")
 
   # Add hipify preprocessing step when building with HIP/ROCm.
@@ -316,11 +315,7 @@ function (define_gpu_extension_target GPU_MOD_NAME)
     set(GPU_WITH_SOABI)
   endif()
 
-  if (GPU_USE_SABI)
-    Python_add_library(${GPU_MOD_NAME} MODULE USE_SABI ${GPU_USE_SABI} ${GPU_WITH_SOABI} "${GPU_SOURCES}")
-  else()
-    Python_add_library(${GPU_MOD_NAME} MODULE ${GPU_WITH_SOABI} "${GPU_SOURCES}")
-  endif()
+  Python_add_library(${GPU_MOD_NAME} MODULE "${GPU_SOURCES}" ${GPU_WITH_SOABI})
 
   if (GPU_LANGUAGE STREQUAL "HIP")
     # Make this target dependent on the hipify preprocessor step.

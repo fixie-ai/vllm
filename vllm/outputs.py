@@ -1,5 +1,4 @@
 import time
-from dataclasses import dataclass
 from typing import List, Optional, Union
 
 from vllm.lora.request import LoRARequest
@@ -7,7 +6,6 @@ from vllm.sequence import (PromptLogprobs, RequestMetrics, SampleLogprobs,
                            SequenceGroup, SequenceStatus)
 
 
-@dataclass
 class CompletionOutput:
     """The output data of one completion output of a request.
 
@@ -26,14 +24,25 @@ class CompletionOutput:
         lora_request: The LoRA request that was used to generate the output.
     """
 
-    index: int
-    text: str
-    token_ids: List[int]
-    cumulative_logprob: float
-    logprobs: Optional[SampleLogprobs]
-    finish_reason: Optional[str] = None
-    stop_reason: Union[int, str, None] = None
-    lora_request: Optional[LoRARequest] = None
+    def __init__(
+        self,
+        index: int,
+        text: str,
+        token_ids: List[int],
+        cumulative_logprob: float,
+        logprobs: Optional[SampleLogprobs],
+        finish_reason: Optional[str] = None,
+        stop_reason: Union[int, str, None] = None,
+        lora_request: Optional[LoRARequest] = None,
+    ) -> None:
+        self.index = index
+        self.text = text
+        self.token_ids = token_ids
+        self.cumulative_logprob = cumulative_logprob
+        self.logprobs = logprobs
+        self.finish_reason = finish_reason
+        self.stop_reason = stop_reason
+        self.lora_request = lora_request
 
     def finished(self) -> bool:
         return self.finish_reason is not None
@@ -48,10 +57,6 @@ class CompletionOutput:
                 f"stop_reason={self.stop_reason})")
 
 
-<<<<<<< HEAD
-=======
-@dataclass
->>>>>>> fixie-ai/vllm/main
 class EmbeddingOutput:
     """The output data of one completion output of a request.
 
@@ -60,7 +65,6 @@ class EmbeddingOutput:
         length of vector depends on the model as listed in the embedding guide.
     """
 
-<<<<<<< HEAD
     def __init__(
         self,
         embedding: List[float],
@@ -70,13 +74,6 @@ class EmbeddingOutput:
     def __repr__(self) -> str:
         return (f"EmbeddingOutput("
                 f"embedding={len(self.embedding)}")
-=======
-    embedding: List[float]
-
-    def __repr__(self) -> str:
-        return (f"EmbeddingOutput("
-                f"embedding={len(self.embedding)})")
->>>>>>> fixie-ai/vllm/main
 
 
 class RequestOutput:
@@ -96,7 +93,7 @@ class RequestOutput:
     def __init__(
         self,
         request_id: str,
-        prompt: Optional[str],
+        prompt: str,
         prompt_token_ids: List[int],
         prompt_logprobs: Optional[PromptLogprobs],
         outputs: List[CompletionOutput],
@@ -186,11 +183,7 @@ class EmbeddingRequestOutput:
         finished (bool): A flag indicating whether the embedding is completed.
     """
 
-<<<<<<< HEAD
     def __init__(self, request_id: str, outputs: 'EmbeddingOutput',
-=======
-    def __init__(self, request_id: str, outputs: "EmbeddingOutput",
->>>>>>> fixie-ai/vllm/main
                  prompt_token_ids: List[int], finished: bool):
         self.request_id = request_id
         self.prompt_token_ids = prompt_token_ids

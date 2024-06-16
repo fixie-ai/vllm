@@ -14,7 +14,6 @@ import vllm.envs as envs
 
 VLLM_CONFIGURE_LOGGING = envs.VLLM_CONFIGURE_LOGGING
 VLLM_LOGGING_CONFIG_PATH = envs.VLLM_LOGGING_CONFIG_PATH
-VLLM_LOGGING_LEVEL = envs.VLLM_LOGGING_LEVEL
 
 _FORMAT = "%(levelname)s %(asctime)s %(filename)s:%(lineno)d] %(message)s"
 _DATE_FORMAT = "%m-%d %H:%M:%S"
@@ -31,7 +30,7 @@ DEFAULT_LOGGING_CONFIG = {
         "vllm": {
             "class": "logging.StreamHandler",
             "formatter": "vllm",
-            "level": VLLM_LOGGING_LEVEL,
+            "level": "INFO",
             "stream": "ext://sys.stdout",
         },
     },

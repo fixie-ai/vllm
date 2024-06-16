@@ -1,11 +1,4 @@
-<<<<<<< HEAD
 import time
-=======
-import gc
-import time
-import warnings
-from collections import defaultdict
->>>>>>> fixie-ai/vllm/main
 from typing import Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
 import numpy as np
@@ -15,25 +8,18 @@ import torch.nn as nn
 from vllm.attention import AttentionMetadata, get_attn_backend
 from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
                          ModelConfig, ParallelConfig, SchedulerConfig,
-<<<<<<< HEAD
                          AudioLanguageConfig, VisionLanguageConfig)
 from vllm.distributed import broadcast_tensor_dict
 from vllm.distributed.communication_op import graph_capture
-=======
-                         VisionLanguageConfig)
-from vllm.distributed import broadcast_tensor_dict
-from vllm.distributed.parallel_state import graph_capture
->>>>>>> fixie-ai/vllm/main
 from vllm.logger import init_logger
 from vllm.lora.layers import LoRAMapping
 from vllm.lora.request import LoRARequest
 from vllm.lora.worker_manager import LRUCacheWorkerLoRAManager
 from vllm.model_executor import SamplingMetadata
 from vllm.model_executor.model_loader import get_model
-from vllm.model_executor.model_loader.tensorizer import TensorizerConfig
-from vllm.multimodal import MULTIMODAL_REGISTRY
 from vllm.sampling_params import SamplingParams
-from vllm.sequence import SamplerOutput, SequenceData, SequenceGroupMetadata
+from vllm.sequence import (MultiModalData, SamplerOutput, SequenceData,
+                           SequenceGroupMetadata)
 from vllm.utils import (CudaMemoryProfiler, get_kv_cache_torch_dtype, is_hip,
                         is_pin_memory_available, make_tensor_with_pad)
 
@@ -47,7 +33,6 @@ _BATCH_SIZE_ALIGNMENT = 8
 _BATCH_SIZES_TO_CAPTURE = [1, 2, 4] + [
     _BATCH_SIZE_ALIGNMENT * i for i in range(1, 33)
 ]
-_NUM_WARMUP_ITERS = 2
 
 
 class ModelInput(NamedTuple):
@@ -58,11 +43,7 @@ class ModelInput(NamedTuple):
     query_lens: List[int]
     lora_mapping: Optional[LoRAMapping]
     lora_requests: Set[LoRARequest]
-<<<<<<< HEAD
     multi_modal_input: Optional[torch.Tensor]
-=======
-    multi_modal_kwargs: Dict[str, torch.Tensor]
->>>>>>> fixie-ai/vllm/main
     slot_mapping: torch.Tensor
     num_prefill_tokens: int
     num_decode_tokens: int
@@ -78,11 +59,7 @@ class ModelInput(NamedTuple):
             query_lens=[],
             lora_mapping=None,
             lora_requests=set(),
-<<<<<<< HEAD
             multi_modal_input=None,
-=======
-            multi_modal_kwargs={},
->>>>>>> fixie-ai/vllm/main
             slot_mapping=torch.empty(0, device=device),
             num_prefill_tokens=0,
             num_decode_tokens=0,
@@ -115,10 +92,7 @@ class ModelRunner:
         self.load_config = load_config
         self.is_driver_worker = is_driver_worker
         self.vision_language_config = vision_language_config
-<<<<<<< HEAD
         self.audio_language_config = audio_language_config
-=======
->>>>>>> fixie-ai/vllm/main
 
         self.device = self.device_config.device
         self.pin_memory = is_pin_memory_available()
@@ -149,19 +123,6 @@ class ModelRunner:
             self.block_size,
         )
 
-<<<<<<< HEAD
-=======
-        # Create processor for multi-modal data
-        if self.vision_language_config is not None:
-            self.multi_modal_input_processor = MULTIMODAL_REGISTRY \
-                .create_input_processor(
-                    self.model_config,
-                    self.vision_language_config,
-                )
-        else:
-            self.multi_modal_input_processor = None
-
->>>>>>> fixie-ai/vllm/main
         # Lazy initialization
         self.model: nn.Module  # Set after load_model
         # Set if the backend is flashinfer.
@@ -210,21 +171,11 @@ class ModelRunner:
             self.model = self.lora_manager.create_lora_manager(self.model)
 
         if self.kv_cache_dtype == "fp8" and is_hip():
-            # Currently only ROCm accepts kv-cache scaling factors
-            # via quantization_param_path and this will be deprecated
-            # in the future.
+            # Currently scaled KV cache is only enabled on ROCm
             if self.model_config.quantization_param_path is not None:
                 if callable(getattr(self.model, "load_kv_cache_scales", None)):
-                    warnings.warn(
-                        "Loading kv cache scaling factor from JSON is "
-                        "deprecated and will be removed. Please include "
-                        "kv cache scaling factors in the model checkpoint.",
-                        FutureWarning,
-                        stacklevel=2)
                     self.model.load_kv_cache_scales(
                         self.model_config.quantization_param_path)
-                    logger.info("Loaded KV cache scaling factors from %s",
-                                self.model_config.quantization_param_path)
                 else:
                     raise RuntimeError(
                         "Using FP8 KV cache and scaling factors provided but "
@@ -235,6 +186,10 @@ class ModelRunner:
                     "Using FP8 KV cache but no scaling factors "
                     "provided. Defaulting to scaling factors of 1.0. "
                     "This may lead to less accurate results!")
+        elif self.model_config.quantization_param_path is not None:
+            logger.warning("KV cache scaling factors provided, "
+                           "but the KV cache data type is not FP8. "
+                           "KV cache scaling factors will not be used.")
 
     def save_sharded_state(
         self,
@@ -249,19 +204,6 @@ class ModelRunner:
             pattern=pattern,
             max_size=max_size,
         )
-<<<<<<< HEAD
-=======
-
-    def save_tensorized_model(
-        self,
-        tensorizer_config: TensorizerConfig,
-    ) -> None:
-        from vllm.model_executor.model_loader.loader import TensorizerLoader
-        TensorizerLoader.save_model(
-            self.model,
-            tensorizer_config=tensorizer_config,
-        )
->>>>>>> fixie-ai/vllm/main
 
     def get_max_block_per_batch(self) -> int:
         block_size = self.block_size
@@ -296,12 +238,7 @@ class ModelRunner:
         context_lens: List[int] = []
         query_lens: List[int] = []
         block_tables: List[List[int]] = []
-<<<<<<< HEAD
         multi_modal_input_list: List[torch.Tensor] = []
-=======
-        multi_modal_kwargs_list: Dict[str,
-                                      List[torch.Tensor]] = defaultdict(list)
->>>>>>> fixie-ai/vllm/main
         decode_only = True
         num_prefills = 0
         num_prefill_tokens = 0
@@ -328,15 +265,6 @@ class ModelRunner:
         if len(seq_group_metadata_list) == 0:
             return ModelInput.empty(self.device)
 
-<<<<<<< HEAD
-=======
-        if self.sliding_window is not None:
-            sliding_window_blocks = (self.sliding_window + self.block_size -
-                                     1) // self.block_size
-            block_aligned_sliding_window = \
-                sliding_window_blocks * self.block_size
-
->>>>>>> fixie-ai/vllm/main
         for seq_group_metadata in seq_group_metadata_list:
             seq_ids = list(seq_group_metadata.seq_data.keys())
             is_prompt = seq_group_metadata.is_prompt
@@ -377,33 +305,6 @@ class ModelRunner:
                                     and self.sliding_window is None
                                     and is_prompt)
 
-<<<<<<< HEAD
-=======
-                # These are seq_len/context_len capped to the sliding window.
-                # They are passed to decode kernel.
-                # We still need original seq_len/context_len to compute slot
-                # mapping (and input position) below.
-                curr_sliding_window_blocks = None
-                sliding_seq_len = seq_len
-                sliding_context_len = context_len
-
-                # TODO(sang): This is a hack to make sliding window work with
-                # paged attn. We can remove it if we make paged attn kernel
-                # to properly handle slinding window attn.
-                if (self.sliding_window is not None and not is_prompt):
-                    curr_sliding_window_blocks = sliding_window_blocks
-                    if self.scheduler_config.use_v2_block_manager:
-                        # number of elements in last block
-                        suff_len = seq_len % self.block_size
-                        sliding_seq_len = min(
-                            seq_len, block_aligned_sliding_window + suff_len)
-                        if suff_len > 0:
-                            curr_sliding_window_blocks += 1
-                    else:
-                        sliding_seq_len = min(seq_len, self.sliding_window)
-                    sliding_context_len = sliding_seq_len - 1
-
->>>>>>> fixie-ai/vllm/main
                 # TODO(sang): Combine chunked prefill and prefix caching by
                 # only allowing multiple of block_size chunk size.
                 # NOTE: This only works for oooooooxxx style attention.
@@ -411,16 +312,6 @@ class ModelRunner:
                     assert computed_block_nums is not None
                     context_len = len(computed_block_nums) * self.block_size
                     tokens = tokens[context_len:]
-<<<<<<< HEAD
-=======
-
-                    # need to think what to set it to when we have both sliding
-                    # window and prefix caching...
-                    assert self.sliding_window is None, \
-                        "Prefix caching is not supported with sliding window"
-                    sliding_context_len = context_len
-
->>>>>>> fixie-ai/vllm/main
                     if self.attn_backend.get_name() == "flash-attn":
                         # NOTE(woosuk): For flash-attn, the block table should
                         # include the entries for the incoming prefill tokens.
@@ -434,7 +325,6 @@ class ModelRunner:
                     if seq_group_metadata.block_tables is not None:
                         # chunked prefill or decode
                         block_table = seq_group_metadata.block_tables[seq_id]
-<<<<<<< HEAD
                         if self.sliding_window is not None:
                             # chunked prefill doesn't support sliding window.
                             assert (not self.scheduler_config.
@@ -443,11 +333,6 @@ class ModelRunner:
                                                      self.block_size)
                             block_table = block_table[-sliding_window_blocks:]
 
-=======
-                        if curr_sliding_window_blocks is not None:
-                            block_table = block_table[
-                                -curr_sliding_window_blocks:]
->>>>>>> fixie-ai/vllm/main
                         if self.attn_backend.get_name() == "flashinfer":
                             paged_kv_indices.extend(block_table)
                             paged_kv_indptr.append(paged_kv_indptr[-1] +
@@ -464,7 +349,6 @@ class ModelRunner:
                     # Prefill without chunked prefill or memory profiling.
                     block_table = []
                 block_tables.append(block_table)
-<<<<<<< HEAD
 
                 # TODO(sang): This is a hack to make sliding window work with
                 # paged attn. We can remove it if we make paged attn kernel
@@ -476,12 +360,6 @@ class ModelRunner:
                 seq_lens.append(seq_len)
                 context_lens.append(context_len)
                 query_len = seq_len - context_len
-=======
-
-                seq_lens.append(sliding_seq_len)
-                context_lens.append(sliding_context_len)
-                query_len = sliding_seq_len - sliding_context_len
->>>>>>> fixie-ai/vllm/main
                 query_lens.append(query_len)
                 input_tokens.extend(tokens)
                 input_positions.extend(list(range(context_len, seq_len)))
@@ -498,16 +376,11 @@ class ModelRunner:
                         "seq_len: {}, context_len: {}, query_len: {}".format(
                             seq_len, context_len, query_len))
                     num_decode_tokens += query_len
-<<<<<<< HEAD
                     decode_seq_lens.append(seq_len)
-=======
-                    decode_seq_lens.append(sliding_seq_len)
->>>>>>> fixie-ai/vllm/main
 
                 if lora_id > 0:
                     lora_requests.add(seq_group_metadata.lora_request)
 
-<<<<<<< HEAD
                 lora_index_mapping += [lora_id] * (seq_len - context_len)
                 lora_prompt_mapping.extend(
                     [lora_id] *
@@ -519,26 +392,6 @@ class ModelRunner:
                 if seq_group_metadata.multi_modal_data:
                     multi_modal_input_list.append(
                         seq_group_metadata.multi_modal_data.data)
-=======
-                lora_index_mapping += [lora_id] * query_len
-                lora_prompt_mapping.extend(
-                    [lora_id] *
-                    (query_len if seq_group_metadata.sampling_params
-                     and seq_group_metadata.sampling_params.prompt_logprobs
-                     is not None else 1))
-
-                mm_data = seq_group_metadata.multi_modal_data
-                if mm_data is not None:
-                    # Process multi-modal data
-                    if self.multi_modal_input_processor is None:
-                        raise ValueError(
-                            "Multi-modal inputs are only supported by "
-                            "vision language models.")
-
-                    mm_kwargs = self.multi_modal_input_processor(mm_data)
-                    for k, v in mm_kwargs.items():
-                        multi_modal_kwargs_list[k].append(v)
->>>>>>> fixie-ai/vllm/main
 
                 if _is_block_tables_empty(seq_group_metadata.block_tables):
                     # During memory profiling, the block tables are not
@@ -560,16 +413,9 @@ class ModelRunner:
                 start_idx = 0
                 if self.sliding_window is not None:
                     if is_prompt:
-<<<<<<< HEAD
                         assert context_len == 0, (
                             "Prefix caching is currently not supported with "
                             "sliding window attention")
-=======
-                        assert self.scheduler_config.use_v2_block_manager \
-                            or context_len == 0, (
-                            "Prefix caching is currently not supported with "
-                            "sliding window attention in V1 block manager")
->>>>>>> fixie-ai/vllm/main
                     # It is an optimization. When it is decoding, it is always
                     # 0. When prefill, we use it to not write slots to kv cache
                     # to save memory.
@@ -630,7 +476,6 @@ class ModelRunner:
             )
         assert max_query_len > 0, ("query_lens: {}".format(query_lens))
 
-<<<<<<< HEAD
         context_lens_tensor = torch.tensor(context_lens,
                                            dtype=torch.int,
                                            device=self.device)
@@ -654,8 +499,6 @@ class ModelRunner:
                                       dtype=torch.int32,
                                       device=self.device)
 
-=======
->>>>>>> fixie-ai/vllm/main
         seq_lens_tensor = torch.tensor(seq_lens,
                                        dtype=torch.int,
                                        device=self.device)
@@ -663,14 +506,11 @@ class ModelRunner:
                                     dtype=torch.int32,
                                     device=self.device)
 
-<<<<<<< HEAD
         torch.cumsum(query_lens_tensor,
                      dim=0,
                      dtype=query_start_loc.dtype,
                      out=query_start_loc[1:])
 
-=======
->>>>>>> fixie-ai/vllm/main
         torch.cumsum(seq_lens_tensor,
                      dim=0,
                      dtype=seq_start_loc.dtype,
@@ -723,21 +563,6 @@ class ModelRunner:
                 seq_start_loc=seq_start_loc,
                 data_type=kv_cache_dtype)
         else:
-            context_lens_tensor = torch.tensor(context_lens,
-                                               dtype=torch.int,
-                                               device=self.device)
-            query_lens_tensor = torch.tensor(query_lens,
-                                             dtype=torch.long,
-                                             device=self.device)
-            query_start_loc = torch.zeros(query_lens_tensor.shape[0] + 1,
-                                          dtype=torch.int32,
-                                          device=self.device)
-
-            torch.cumsum(query_lens_tensor,
-                         dim=0,
-                         dtype=query_start_loc.dtype,
-                         out=query_start_loc[1:])
-
             attn_metadata = self.attn_backend.make_metadata(
                 num_prefills=num_prefills,
                 slot_mapping=slot_mapping_tensor,
@@ -763,14 +588,6 @@ class ModelRunner:
         else:
             lora_mapping = None
 
-<<<<<<< HEAD
-=======
-        multi_modal_kwargs = {
-            k: torch.cat(v, dim=0).to(self.device)
-            for k, v in multi_modal_kwargs_list.items()
-        }
-
->>>>>>> fixie-ai/vllm/main
         return ModelInput(
             input_tokens=input_tokens_tensor,
             input_positions=input_positions_tensor,
@@ -779,11 +596,7 @@ class ModelRunner:
             query_lens=query_lens,
             lora_mapping=lora_mapping,
             lora_requests=lora_requests,
-<<<<<<< HEAD
             multi_modal_input=multi_modal_input,
-=======
-            multi_modal_kwargs=multi_modal_kwargs,
->>>>>>> fixie-ai/vllm/main
             slot_mapping=slot_mapping_tensor,
             num_prefill_tokens=num_prefill_tokens,
             num_decode_tokens=num_decode_tokens,
@@ -792,14 +605,10 @@ class ModelRunner:
 
     def prepare_input_tensors(
         self,
-        seq_group_metadata_list: Optional[List[SequenceGroupMetadata]],
+        seq_group_metadata_list: List[SequenceGroupMetadata],
     ) -> Tuple[torch.Tensor, torch.Tensor, AttentionMetadata, SamplingMetadata,
-               Set[LoRARequest], LoRAMapping, Dict[str, torch.Tensor]]:
+               Set[LoRARequest], LoRAMapping, torch.Tensor]:
         if self.is_driver_worker:
-<<<<<<< HEAD
-=======
-            assert seq_group_metadata_list is not None
->>>>>>> fixie-ai/vllm/main
             # Prepare input tensors.
             (
                 input_tokens,
@@ -809,7 +618,7 @@ class ModelRunner:
                 query_lens,
                 lora_mapping,
                 lora_requests,
-                multi_modal_kwargs,
+                multi_modal_input,
                 slot_mapping,
                 num_prefill_tokens,
                 num_decode_tokens,
@@ -826,7 +635,7 @@ class ModelRunner:
                 sampling_metadata.selected_token_indices,
                 "lora_requests": lora_requests,
                 "lora_mapping": lora_mapping,
-                "multi_modal_kwargs": multi_modal_kwargs,
+                "multi_modal_input": multi_modal_input,
                 "num_prefill_tokens": num_prefill_tokens,
                 "num_decode_tokens": num_decode_tokens,
                 "slot_mapping": slot_mapping,
@@ -843,11 +652,7 @@ class ModelRunner:
                 "selected_token_indices")
             lora_mapping = metadata_dict.pop("lora_mapping")
             lora_requests = metadata_dict.pop("lora_requests")
-<<<<<<< HEAD
             multi_modal_input = metadata_dict.pop("multi_modal_input")
-=======
-            multi_modal_kwargs = metadata_dict.pop("multi_modal_kwargs")
->>>>>>> fixie-ai/vllm/main
             if metadata_dict:
                 attn_metadata = self.attn_backend.make_metadata(
                     **metadata_dict)
@@ -862,16 +667,16 @@ class ModelRunner:
 
         return (input_tokens, input_positions, attn_metadata,
                 sampling_metadata, lora_requests, lora_mapping,
-                multi_modal_kwargs)
+                multi_modal_input)
 
     @torch.inference_mode()
     def execute_model(
         self,
-        seq_group_metadata_list: Optional[List[SequenceGroupMetadata]],
+        seq_group_metadata_list: List[SequenceGroupMetadata],
         kv_caches: List[torch.Tensor],
     ) -> Optional[SamplerOutput]:
         (input_tokens, input_positions, attn_metadata, sampling_metadata,
-         lora_requests, lora_mapping, multi_modal_kwargs
+         lora_requests, lora_mapping, multi_modal_input
          ) = self.prepare_input_tensors(seq_group_metadata_list)
 
         if self.lora_config:
@@ -885,7 +690,6 @@ class ModelRunner:
             model_executable = self.graph_runners[graph_batch_size]
         else:
             model_executable = self.model
-<<<<<<< HEAD
         execute_model_kwargs = {
             "input_ids": input_tokens,
             "positions": input_positions,
@@ -897,16 +701,6 @@ class ModelRunner:
         elif self.audio_language_config:
             execute_model_kwargs.update({"audio_input": multi_modal_input})
         hidden_states = model_executable(**execute_model_kwargs)
-=======
-
-        hidden_states = model_executable(
-            input_ids=input_tokens,
-            positions=input_positions,
-            kv_caches=kv_caches,
-            attn_metadata=attn_metadata,
-            **multi_modal_kwargs,
-        )
->>>>>>> fixie-ai/vllm/main
 
         # Compute the logits.
         logits = self.model.compute_logits(hidden_states, sampling_metadata)
@@ -962,13 +756,9 @@ class ModelRunner:
         # To exercise the worst scenario for GPU memory consumption,
         # the number of seqs (batch_size) is chosen to maximize the number
         # of images processed.
-        model_config = self.model_config
-        vlm_config = self.vision_language_config
-
-        if vlm_config:
+        if self.vision_language_config:
             max_num_seqs = min(
                 max_num_seqs,
-<<<<<<< HEAD
                 int(max_num_batched_tokens /
                     self.vision_language_config.image_feature_size))
         elif self.audio_language_config:
@@ -976,20 +766,11 @@ class ModelRunner:
             #max_num_seqs,
             #int(max_num_batched_tokens /
             #    self.audio_language_config.audio_feature_size))
-=======
-                int(max_num_batched_tokens / vlm_config.image_feature_size))
->>>>>>> fixie-ai/vllm/main
         for group_id in range(max_num_seqs):
             seq_len = (max_num_batched_tokens // max_num_seqs +
                        (group_id < max_num_batched_tokens % max_num_seqs))
-
-            if vlm_config is None:
-                seq_data = SequenceData([0] * seq_len)
-                dummy_multi_modal_data = None
-            else:
-                seq_data, dummy_multi_modal_data = MULTIMODAL_REGISTRY \
-                    .dummy_data_for_profiling(seq_len, model_config, vlm_config)
-
+            seq_data, fake_multi_modal_input = _prepare_fake_inputs(
+                seq_len, self.vision_language_config)
             seq = SequenceGroupMetadata(
                 request_id=str(group_id),
                 is_prompt=True,
@@ -998,7 +779,7 @@ class ModelRunner:
                 block_tables=None,
                 lora_request=dummy_lora_requests_per_seq[group_id]
                 if dummy_lora_requests_per_seq else None,
-                multi_modal_data=dummy_multi_modal_data,
+                multi_modal_data=fake_multi_modal_input,
             )
             seqs.append(seq)
 
@@ -1070,10 +851,6 @@ class ModelRunner:
         seq_lens = torch.ones(max_batch_size, dtype=torch.int32).cuda()
         block_tables = torch.from_numpy(self.graph_block_tables).cuda()
 
-        # Prepare buffer for outputs. These will be reused for all batch sizes.
-        # It will be filled after the first graph capture.
-        hidden_states: Optional[torch.Tensor] = None
-
         graph_batch_size = _get_graph_batch_size(
             self.scheduler_config.max_num_seqs)
         batch_size_capture_list = [
@@ -1110,11 +887,9 @@ class ModelRunner:
                     self.set_active_loras(set(), lora_mapping)
 
                 graph_runner = CUDAGraphRunner(self.model)
-                hidden_states = graph_runner.capture(
+                graph_runner.capture(
                     input_tokens[:batch_size],
                     input_positions[:batch_size],
-                    hidden_states[:batch_size]
-                    if hidden_states is not None else None,
                     kv_caches,
                     attn_metadata,
                     memory_pool=self.graph_memory_pool,
@@ -1151,18 +926,16 @@ class CUDAGraphRunner:
         self,
         input_ids: torch.Tensor,
         positions: torch.Tensor,
-        hidden_states: Optional[torch.Tensor],
         kv_caches: List[torch.Tensor],
         attn_metadata: AttentionMetadata,
         memory_pool: Optional[Tuple[int, int]],
         stream: torch.cuda.Stream,
         **kwargs,
-    ) -> torch.Tensor:
+    ) -> None:
         assert self._graph is None
-        # Run the model a few times without capturing the graph.
+        # Run the model once without capturing the graph.
         # This is to make sure that the captured graph does not include the
         # kernel launches for initial benchmarking (e.g., Triton autotune).
-<<<<<<< HEAD
         self.model(
             input_ids,
             positions,
@@ -1176,11 +949,6 @@ class CUDAGraphRunner:
         self._graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(self._graph, pool=memory_pool, stream=stream):
             hidden_states = self.model(
-=======
-        # Note one iteration is not enough for torch.jit.script
-        for _ in range(_NUM_WARMUP_ITERS):
-            self.model(
->>>>>>> fixie-ai/vllm/main
                 input_ids,
                 positions,
                 kv_caches,
@@ -1189,29 +957,6 @@ class CUDAGraphRunner:
             )
         torch.cuda.synchronize()
 
-<<<<<<< HEAD
-=======
-        # Capture the graph.
-        self._graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(self._graph, pool=memory_pool, stream=stream):
-            output_hidden_states = self.model(
-                input_ids,
-                positions,
-                kv_caches,
-                attn_metadata,
-                **kwargs,
-            )
-            if hidden_states is not None:
-                hidden_states.copy_(output_hidden_states)
-            else:
-                hidden_states = output_hidden_states
-            del output_hidden_states
-            # make sure `output_hidden_states` is deleted
-            # in the graph's memory pool
-            gc.collect()
-        torch.cuda.synchronize()
-
->>>>>>> fixie-ai/vllm/main
         # Save the input and output buffers.
         self.input_buffers = {
             "input_ids": input_ids,
@@ -1222,7 +967,7 @@ class CUDAGraphRunner:
             "block_tables": attn_metadata.decode_metadata.block_tables,
         }
         self.output_buffers = {"hidden_states": hidden_states}
-        return hidden_states
+        return
 
     def forward(
         self,
@@ -1269,7 +1014,6 @@ def _get_graph_batch_size(batch_size: int) -> int:
                 _BATCH_SIZE_ALIGNMENT * _BATCH_SIZE_ALIGNMENT)
 
 
-<<<<<<< HEAD
 def _prepare_fake_inputs(
         seq_len: int, vision_language_config: Optional[VisionLanguageConfig]):
     """Prepare fake inputs for profile run."""
@@ -1288,8 +1032,6 @@ def _prepare_fake_inputs(
     return SequenceData(prompt_tokens), fake_image_input
 
 
-=======
->>>>>>> fixie-ai/vllm/main
 def _is_block_tables_empty(block_tables: Union[None, Dict]):
     """
     Check if block_tables is None or a dictionary with all None values.

@@ -3,7 +3,7 @@
 #define CPU_TYPES_HPP
 
 #include <immintrin.h>
-#include <torch/all.h>
+#include <torch/extension.h>
 
 namespace vec_op {
 

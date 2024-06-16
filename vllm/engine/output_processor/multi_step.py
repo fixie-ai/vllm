@@ -78,7 +78,7 @@ class MultiStepOutputProcessor(SequenceGroupOutputProcessor):
 
         # Since there's only one sequence per sequence group, we can take the
         # first sample.
-        samples = [output.samples[0] for output in outputs]
+        samples = [outputs[step].samples[0] for step in range(len(outputs))]
 
         # -1 means the output token is not valid (eg. due to spec decode
         # rejecting tokens).
