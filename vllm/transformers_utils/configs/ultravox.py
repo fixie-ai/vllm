@@ -2,8 +2,11 @@
 
 # Adapted from https://github.com/fixie-ai/ultravox/blob/ecd58c4041030bae2ad15aa6bcf04ab43199ea02/ultravox/model/ultravox_config.py
 from typing import Any, Dict, Optional
+import logging
 
 import transformers
+from transformers.models.llama4.configuration_llama4 import Llama4Config
+
 
 
 class UltravoxConfig(transformers.PretrainedConfig):
@@ -85,6 +88,11 @@ class UltravoxConfig(transformers.PretrainedConfig):
             text_config = text_config or {}
             self.text_config = transformers.CONFIG_MAPPING[text_config.get(
                 "model_type", "llama")](**text_config)
+            
+        logging.info(f"text_config: {self.text_config}")
+        if isinstance(self.text_config, Llama4Config):
+            self.text_config = self.text_config.text_config
+            logging.info(f"text_config: {self.text_config}")
 
         if audio_model_id is not None:
             # Avoid circular import
