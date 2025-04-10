@@ -9,6 +9,7 @@ import transformers
 MODEL_TO_AUDIO_TOKEN = {
     'gemma-3': 262145,
     'Llama-3': 128256,
+    "Llama-4": 201135,
 }
 
 
@@ -113,13 +114,9 @@ class UltravoxConfig(transformers.PretrainedConfig):
         if isinstance(text_config_obj, transformers.Gemma3Config):
             text_config_obj = text_config_obj.text_config
             text_config_obj.architectures = ["Gemma3ForCausalLM"]
-            text_config_obj.nested = True
         elif isinstance(text_config_obj, transformers.Llama4Config):
             text_config_obj = text_config_obj.text_config
             text_config_obj.architectures = ["Llama4ForCausalLM"]
-            text_config_obj.nested = True
-        else:
-            text_config_obj.nested = False
 
         if audio_model_id is not None:
             # Avoid circular import
