@@ -411,8 +411,16 @@ class UltravoxModel(nn.Module, SupportsMultiModal, SupportsPP, SupportsLoRA):
         "gate_up_proj": ["gate_proj", "up_proj"]
     }
 
-    hf_to_vllm_mapper = WeightsMapper(
-        orig_to_new_prefix={"audio_tower.model.encoder.": "audio_tower."})
+    hf_to_vllm_mapper = WeightsMapper(orig_to_new_prefix={
+        "audio_tower.model.encoder.":
+        "audio_tower.",
+        "language_model.vision_tower.":
+        None,
+        "language_model.multi_modal_projector.":
+        None,
+        "language_model.language_model.":
+        "language_model."
+    }, )
 
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
         super().__init__()
