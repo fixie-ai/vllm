@@ -40,8 +40,8 @@ from .utils import (AutoWeightsLoader, WeightsMapper, flatten_bn,
                     merge_multimodal_embeddings,
                     merge_multimodal_embeddings_from_map)
 
-_AUDIO_PLACEHOLDER_OVERRIDE = "<|reserved_special_token_0|>"
-_AUDIO_PLACEHOLDER_TOKEN = 128002
+_AUDIO_PLACEHOLDER_OVERRIDE = "<|vision_reserved_special_token_1047|>"
+_AUDIO_PLACEHOLDER_TOKEN = 201133
 _AUDIO_TOKENS_PER_SECOND = 6.25
 _MAX_ENCODER_BATCH_SIZE = 16
 
@@ -82,24 +82,8 @@ class UltravoxProcessingInfo(BaseProcessingInfo):
         **kwargs: object,
     ) -> ProcessorMixin:
         # get the audio token and token index from the config
-        config = self.ctx.model_config.hf_config
-        audio_token = config.audio_token
-        audio_token_index = config.audio_token_index
 
         hf_processor = self.ctx.get_hf_processor(**kwargs)
-
-        if (audio_token
-                not in hf_processor.tokenizer.additional_special_tokens):
-            hf_processor.tokenizer.add_special_tokens(
-                {'additional_special_tokens': [audio_token]})
-            # make sure the token matches the expected token id
-            new_token_id = hf_processor.tokenizer.encode(
-                audio_token, add_special_tokens=False)[0]
-            assert new_token_id == audio_token_index, (
-                f"New token id {new_token_id} does not match expected token id"
-                f" {audio_token_index} for audio token {audio_token}")
-            # update the vocab to include the new token
-            hf_processor.vocab = hf_processor.tokenizer.get_vocab()
 
         # NOTE: Ultravox processing definition uses '<|eot_id|>' as the
         # placeholder that will cause confusion with the actual end of turn
@@ -107,8 +91,6 @@ class UltravoxProcessingInfo(BaseProcessingInfo):
         # token.
         hf_processor.audio_token_replacement = _AUDIO_PLACEHOLDER_OVERRIDE
         hf_processor.audio_replacement_token_id = _AUDIO_PLACEHOLDER_TOKEN
-        hf_processor.audio_token_replacement = audio_token
-        hf_processor.audio_replacement_token_id = audio_token_index
 
         return hf_processor
 
