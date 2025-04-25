@@ -115,8 +115,12 @@ class UltravoxConfig(transformers.PretrainedConfig):
             text_config_obj = text_config_obj.text_config
             text_config_obj.architectures = ["Gemma3ForCausalLM"]
         elif isinstance(text_config_obj, transformers.Llama4Config):
-            text_config_obj = text_config_obj.text_config
-            text_config_obj.architectures = ["Llama4ForCausalLM"]
+            self.vocab_size = text_config_obj.text_config.vocab_size
+            self.initializer_range = text_config_obj.text_config.\
+                initializer_range
+        else:
+            self.vocab_size = text_config_obj.vocab_size
+            self.initializer_range = text_config_obj.initializer_range
 
         if audio_model_id is not None:
             # Avoid circular import
@@ -134,9 +138,5 @@ class UltravoxConfig(transformers.PretrainedConfig):
         self.audio_config = audio_config
         self.text_model_lora_config = text_model_lora_config or {}
         self.audio_model_lora_config = audio_model_lora_config or {}
-
-        self.vocab_size = text_config_obj.vocab_size
-
-        self.initializer_range = text_config_obj.initializer_range
 
         super().__init__(**kwargs)

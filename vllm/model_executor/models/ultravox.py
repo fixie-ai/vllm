@@ -272,7 +272,10 @@ class UltravoxProjector(nn.Module):
         else:
             self.act = get_act_fn(config.projector_act)
 
-        dim_out = config.text_config.hidden_size
+        if hasattr(config.text_config, "text_config"):
+            dim_out = config.text_config.text_config.hidden_size
+        else:
+            dim_out = config.text_config.hidden_size
         self.linear_2 = nn.Linear(dim_mid, dim_out, bias=False)
 
         # Ultravox v0.4.1 and below use layer_norm after the second linear layer
@@ -402,18 +405,18 @@ class UltravoxModel(nn.Module, SupportsMultiModal, SupportsPP, SupportsLoRA):
         "gate_up_proj": ["gate_proj", "up_proj"]
     }
 
-    hf_to_vllm_mapper = WeightsMapper(orig_to_new_prefix={
-        "audio_tower.model.encoder.":
-        "audio_tower.",
-        "language_model.vision_tower.":
-        None,
-        "language_model.vision_model.":
-        None,
-        "language_model.multi_modal_projector.":
-        None,
-        "language_model.language_model.":
-        "language_model."
-    }, )
+    hf_to_vllm_mapper = WeightsMapper(
+        orig_to_new_prefix={
+            "audio_tower.model.encoder.": "audio_tower.",
+            # "language_model.vision_tower.":
+            # None,
+            # "language_model.vision_model.":
+            # None,
+            # "language_model.multi_modal_projector.":
+            # None,
+            # "language_model.language_model.":
+            # "language_model."
+        }, )
 
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
         super().__init__()
@@ -582,6 +585,8 @@ class UltravoxModel(nn.Module, SupportsMultiModal, SupportsPP, SupportsLoRA):
     ) -> torch.Tensor:
         inputs_embeds = self.language_model.get_input_embeddings(input_ids)
         if multimodal_embeddings is not None:
+            if input_ids.shape[-1] > 1:
+                print(input_ids.tolist())
 
             # TODO(ywang96): remove this block after v0 is deprecated.
             if not envs.VLLM_USE_V1:
@@ -630,10 +635,11 @@ class UltravoxModel(nn.Module, SupportsMultiModal, SupportsPP, SupportsLoRA):
                                                       multimodal_embeddings)
             input_ids = None
 
-        hidden_states = self.language_model.model(input_ids,
-                                                  positions,
-                                                  intermediate_tensors,
-                                                  inputs_embeds=inputs_embeds)
+        hidden_states = self.language_model.language_model.model(
+            input_ids,
+            positions,
+            intermediate_tensors,
+            inputs_embeds=inputs_embeds)
         return hidden_states
 
     def compute_logits(self, hidden_states: torch.Tensor,
